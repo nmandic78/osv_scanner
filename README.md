@@ -140,6 +140,7 @@ The project is a single self-contained file. To modify it, edit
 `dependency-security-and-license-audit.html` directly. There is no build step, no dependencies, and
 no package manager. The only external requests at runtime are the data-source APIs
 listed above and the web fonts.
+Code is 100% Claude written.
 
 ## License
 This project is licensed under the MIT License. See the LICENSE file for details.
