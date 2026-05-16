@@ -142,6 +142,4 @@ no package manager. The only external requests at runtime are the data-source AP
 listed above and the web fonts.
 
 ## License
-
-Add a `LICENSE` file of your choice before sharing more widely. MIT is a common choice
-for internal tooling.
+This project is licensed under the MIT License. See the LICENSE file for details.
