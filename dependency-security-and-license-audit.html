@@ -1,0 +1,1281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dependency Security Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0b0e;
+  --panel:#13151b;
+  --panel-2:#171a21;
+  --line:rgba(255,255,255,.07);
+  --line-strong:rgba(255,255,255,.13);
+  --txt:#e9eaee;
+  --txt-2:#9aa0aa;
+  --txt-3:#5f636d;
+  --accent:#c8f135;
+  --crit:#ff4d4d;
+  --high:#ff8b2e;
+  --med:#ffd23f;
+  --low:#74a9d8;
+  --clean:#33d399;
+  --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:'IBM Plex Sans',sans-serif;
+  background:var(--bg);
+  color:var(--txt);
+  -webkit-font-smoothing:antialiased;
+  line-height:1.5;
+  position:relative;
+  overflow-x:hidden;
+}
+/* atmosphere */
+body::before{
+  content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(800px 420px at 78% -8%, rgba(200,241,53,.10), transparent 70%),
+    radial-gradient(680px 380px at 8% 4%, rgba(116,169,216,.07), transparent 70%);
+}
+body::after{
+  content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+  background-image:
+    linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);
+  background-size:46px 46px;
+  mask-image:linear-gradient(180deg,#000 0%,transparent 60%);
+}
+.wrap{position:relative;z-index:1;max-width:1120px;margin:0 auto;padding:38px 26px 90px}
+
+/* header */
+header{display:flex;align-items:flex-start;gap:16px;margin-bottom:30px}
+.mark{
+  width:46px;height:46px;flex:none;border-radius:11px;
+  background:linear-gradient(160deg,#1c2129,#101319);
+  border:1px solid var(--line-strong);
+  display:grid;place-items:center;
+  box-shadow:0 0 0 1px rgba(0,0,0,.4),0 14px 30px rgba(0,0,0,.5);
+}
+h1{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:21px;font-weight:600;letter-spacing:-.4px;line-height:1.15;
+}
+h1 .dim{color:var(--txt-3)}
+.tag{color:var(--txt-2);font-size:13.5px;margin-top:3px;max-width:620px}
+.tag b{color:var(--accent);font-weight:600}
+
+/* input card */
+.card{
+  background:linear-gradient(180deg,var(--panel),var(--panel-2));
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+}
+.intake{padding:20px;margin-bottom:18px}
+.drop{
+  border:1.5px dashed var(--line-strong);
+  border-radius:11px;
+  padding:30px 22px;text-align:center;cursor:pointer;
+  transition:.18s ease;
+  background:rgba(255,255,255,.012);
+}
+.drop:hover{border-color:rgba(200,241,53,.45);background:rgba(200,241,53,.035)}
+.drop.over{border-color:var(--accent);background:rgba(200,241,53,.07)}
+.drop .ico{font-size:25px;margin-bottom:8px}
+.drop .big{font-size:14.5px;font-weight:600}
+.drop .big u{color:var(--accent);text-decoration:none}
+.drop .sub{font-size:12.5px;color:var(--txt-3);margin-top:4px;font-family:'IBM Plex Mono',monospace}
+
+.row-actions{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+.toggle-paste{
+  background:none;border:none;color:var(--txt-2);font-size:12.5px;cursor:pointer;
+  font-family:'IBM Plex Mono',monospace;padding:4px 2px;
+}
+.toggle-paste:hover{color:var(--txt)}
+.sep{flex:1}
+
+textarea{
+  width:100%;margin-top:13px;min-height:128px;resize:vertical;
+  background:#0c0e13;border:1px solid var(--line);border-radius:9px;
+  color:var(--txt);font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+  padding:12px;line-height:1.65;
+}
+textarea:focus{outline:none;border-color:rgba(200,241,53,.4)}
+textarea.hidden{display:none}
+
+/* license policy */
+.policy{display:flex;align-items:center;gap:10px;margin-top:13px;flex-wrap:wrap}
+.policy label{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--txt-2);white-space:nowrap}
+.policy input{
+  flex:1;min-width:200px;background:#0c0e13;border:1px solid var(--line);border-radius:8px;
+  color:var(--accent);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:8px 11px;
+}
+.policy input:focus{outline:none;border-color:rgba(200,241,53,.4)}
+.policy-hint{font-size:11px;color:var(--txt-3);font-family:'IBM Plex Mono',monospace;flex-basis:100%}
+
+button.btn{
+  font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:600;
+  border-radius:9px;cursor:pointer;border:1px solid transparent;
+  padding:10px 18px;transition:.15s ease;
+}
+.btn-primary{background:var(--accent);color:#10130a;}
+.btn-primary:hover{filter:brightness(1.08)}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed;filter:none}
+.btn-ghost{background:rgba(255,255,255,.04);border-color:var(--line-strong);color:var(--txt-2)}
+.btn-ghost:hover{color:var(--txt);border-color:var(--txt-3)}
+
+/* progress */
+.progress{margin-top:14px;display:none}
+.progress.on{display:block}
+.bar{height:5px;border-radius:4px;background:rgba(255,255,255,.06);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),#9cd11f);transition:width .3s ease}
+.pmeta{display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--txt-3);margin-top:7px}
+
+/* summary */
+.summary{display:grid;grid-template-columns:repeat(6,1fr);gap:11px;margin-bottom:18px}
+.stat{padding:15px 16px}
+.stat .k{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--txt-3)}
+.stat .v{font-size:27px;font-weight:700;margin-top:7px;font-family:'IBM Plex Mono',monospace;line-height:1}
+.stat .v.crit{color:var(--crit)} .stat .v.ok{color:var(--clean)} .stat .v.acc{color:var(--accent)}
+.stat .note{font-size:11px;color:var(--txt-3);margin-top:5px}
+
+/* controls */
+.controls{display:flex;gap:9px;align-items:center;margin-bottom:13px;flex-wrap:wrap}
+.search{
+  flex:1;min-width:170px;background:var(--panel);border:1px solid var(--line);
+  border-radius:9px;padding:9px 12px;color:var(--txt);font-size:13px;
+  font-family:'IBM Plex Mono',monospace;
+}
+.search:focus{outline:none;border-color:var(--line-strong)}
+.chip{
+  background:var(--panel);border:1px solid var(--line);color:var(--txt-2);
+  font-size:12px;font-family:'IBM Plex Mono',monospace;padding:8px 12px;
+  border-radius:8px;cursor:pointer;transition:.13s;
+}
+.chip:hover{color:var(--txt)}
+.chip.active{background:rgba(200,241,53,.12);border-color:rgba(200,241,53,.4);color:var(--accent)}
+select.sortsel{
+  background:var(--panel);border:1px solid var(--line);color:var(--txt-2);
+  font-size:12px;font-family:'IBM Plex Mono',monospace;padding:8px 10px;border-radius:8px;cursor:pointer;
+}
+
+/* package list */
+.list{display:flex;flex-direction:column;gap:9px}
+.pkg{overflow:hidden;transition:border-color .15s}
+.pkg.vuln{border-color:rgba(255,77,77,.32)}
+.pkg.err{border-color:rgba(255,255,255,.05);opacity:.78}
+.phead{
+  display:grid;
+  grid-template-columns:22px minmax(0,1fr) 150px 132px 1fr 70px;
+  gap:14px;align-items:center;padding:14px 16px;cursor:pointer;
+}
+.phead:hover{background:rgba(255,255,255,.018)}
+.chev{color:var(--txt-3);transition:transform .2s;font-size:13px;text-align:center}
+.pkg.open .chev{transform:rotate(90deg)}
+
+.pname{font-family:'IBM Plex Mono',monospace;min-width:0}
+.pname .nm{font-size:14.5px;font-weight:600;display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.pname .ver{color:var(--accent);font-size:12.5px;font-weight:500}
+.pname .ver.assumed{color:var(--low)}
+.pname .repo{font-size:11px;color:var(--txt-3);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.verdict{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
+  padding:5px 9px;border-radius:7px;text-align:center;letter-spacing:.3px;white-space:nowrap;
+  justify-self:start}
+.verdict.bad{background:rgba(255,77,77,.13);color:var(--crit);border:1px solid rgba(255,77,77,.3)}
+.verdict.good{background:rgba(51,211,153,.1);color:var(--clean);border:1px solid rgba(51,211,153,.26)}
+.verdict.wait{background:rgba(255,255,255,.05);color:var(--txt-3);border:1px solid var(--line)}
+.verdict.unk{background:rgba(255,210,63,.1);color:var(--med);border:1px solid rgba(255,210,63,.26)}
+
+.pills{display:flex;gap:6px;flex-wrap:wrap}
+.pill{font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:600;
+  padding:3px 7px;border-radius:6px;border:1px solid}
+.pill.c{color:var(--crit);background:rgba(255,77,77,.1);border-color:rgba(255,77,77,.28)}
+.pill.h{color:var(--high);background:rgba(255,139,46,.1);border-color:rgba(255,139,46,.28)}
+.pill.m{color:var(--med);background:rgba(255,210,63,.1);border-color:rgba(255,210,63,.26)}
+.pill.l{color:var(--low);background:rgba(116,169,216,.1);border-color:rgba(116,169,216,.26)}
+.pill.u{color:var(--txt-2);background:rgba(255,255,255,.04);border-color:var(--line)}
+/* license badge */
+.lic{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
+  padding:5px 9px;border-radius:7px;border:1px solid;white-space:nowrap;
+  display:inline-flex;align-items:center;gap:4px}
+.lic.ok{color:#6cc093;background:rgba(51,211,153,.07);border-color:rgba(51,211,153,.2)}
+.lic.review{color:var(--med);background:rgba(255,210,63,.1);border-color:rgba(255,210,63,.28)}
+.lic.flag{color:var(--crit);background:rgba(255,77,77,.11);border-color:rgba(255,77,77,.3)}
+.liccell{display:flex;align-items:center;justify-content:flex-end;min-width:0}
+
+/* health ring */
+.ring{position:relative;width:54px;height:54px;justify-self:end}
+.ring svg{transform:rotate(-90deg)}
+.ring .lbl{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring .lbl .g{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;line-height:1}
+.ring .lbl .s{font-size:8.5px;color:var(--txt-3);font-family:'IBM Plex Mono',monospace}
+
+/* detail */
+.detail{display:none;border-top:1px solid var(--line);padding:4px 16px 18px;background:rgba(0,0,0,.18)}
+.pkg.open .detail{display:block}
+.dsec{margin-top:16px}
+.dsec h4{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.7px;
+  text-transform:uppercase;color:var(--txt-3);margin-bottom:9px;display:flex;align-items:center;gap:8px}
+.dsec h4::after{content:"";flex:1;height:1px;background:var(--line)}
+
+.vcard{background:#0c0e13;border:1px solid var(--line);border-radius:9px;padding:12px 13px;margin-bottom:8px}
+.vcard.sev-crit{border-left:3px solid var(--crit)}
+.vcard.sev-high{border-left:3px solid var(--high)}
+.vcard.sev-med{border-left:3px solid var(--med)}
+.vcard.sev-low{border-left:3px solid var(--low)}
+.vcard.sev-unk{border-left:3px solid var(--txt-3)}
+.vtop{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.vid{font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600;color:var(--txt);text-decoration:none}
+.vid:hover{color:var(--accent)}
+.sevtag{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;padding:2px 7px;border-radius:5px}
+.sevtag.crit{background:var(--crit);color:#180404}
+.sevtag.high{background:var(--high);color:#1a0c02}
+.sevtag.med{background:var(--med);color:#191400}
+.sevtag.low{background:var(--low);color:#08121c}
+.sevtag.unk{background:rgba(255,255,255,.1);color:var(--txt-2)}
+.cve{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--txt-2);
+  background:rgba(255,255,255,.05);padding:2px 6px;border-radius:5px}
+.vsum{font-size:12.5px;color:var(--txt);margin:5px 0}
+.vmeta{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--txt-3);display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
+.vmeta b{color:var(--clean);font-weight:600}
+.vmeta .aff{color:var(--high)}
+.vrefs{margin-top:7px;display:flex;gap:8px;flex-wrap:wrap}
+.vrefs a{font-size:10.5px;color:var(--low);text-decoration:none;font-family:'IBM Plex Mono',monospace}
+.vrefs a:hover{text-decoration:underline}
+
+/* scorecard */
+.scoverall{display:flex;align-items:center;gap:13px;margin-bottom:10px}
+.scoverall .num{font-family:'IBM Plex Mono',monospace;font-size:30px;font-weight:700;line-height:1}
+.scoverall .meta{font-size:12px;color:var(--txt-3)}
+.checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:7px}
+.chk{background:#0c0e13;border:1px solid var(--line);border-radius:7px;padding:8px 10px}
+.chk .cn{font-size:11.5px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.chk .cs{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600}
+.chk .cr{font-size:10.5px;color:var(--txt-3);margin-top:3px;line-height:1.4}
+
+.meta-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:9px}
+.mi .mk{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--txt-3)}
+.mi .mv{font-size:13px;margin-top:2px;word-break:break-word}
+
+.links{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.links a{font-family:'IBM Plex Mono',monospace;font-size:11.5px;text-decoration:none;
+  padding:6px 11px;border-radius:7px;border:1px solid var(--line-strong);color:var(--txt-2);
+  display:inline-flex;align-items:center;gap:6px;transition:.13s}
+.links a:hover{color:var(--txt);border-color:var(--txt-3);background:rgba(255,255,255,.03)}
+.links a.snyk:hover{border-color:#9b6dff;color:#b89bff}
+
+.notice{font-size:12px;color:var(--med);background:rgba(255,210,63,.07);
+  border:1px solid rgba(255,210,63,.2);border-radius:8px;padding:9px 11px;font-family:'IBM Plex Mono',monospace}
+.notice.flag{color:var(--crit);background:rgba(255,77,77,.07);border-color:rgba(255,77,77,.22)}
+.notice.good{color:var(--clean);background:rgba(51,211,153,.07);border-color:rgba(51,211,153,.2)}
+.licrow{display:flex;align-items:center;gap:9px;margin-bottom:9px;flex-wrap:wrap}
+.licrow .tag{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;
+  padding:3px 9px;border-radius:6px}
+.licrow .pol{font-size:11px;color:var(--txt-3);font-family:'IBM Plex Mono',monospace}
+
+/* states */
+.empty{text-align:center;padding:48px 20px;color:var(--txt-3)}
+.empty .e-ico{font-size:30px;opacity:.5;margin-bottom:10px}
+.skel{display:flex;align-items:center;gap:8px;color:var(--txt-3);font-family:'IBM Plex Mono',monospace;font-size:12px}
+.spin{width:13px;height:13px;border:2px solid var(--line-strong);border-top-color:var(--accent);
+  border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+footer{margin-top:34px;padding-top:18px;border-top:1px solid var(--line);
+  font-size:11.5px;color:var(--txt-3);font-family:'IBM Plex Mono',monospace;line-height:1.7}
+footer a{color:var(--txt-2)}
+.hidden{display:none}
+
+@media(max-width:760px){
+  .summary{grid-template-columns:repeat(3,1fr)}
+  .phead{grid-template-columns:20px 1fr auto 54px;
+    grid-template-areas:"c n n r" "c l v r" "c p p p"}
+  .chev{grid-area:c} .pname{grid-area:n} .liccell{grid-area:l;justify-content:flex-start}
+  .verdict{grid-area:v;justify-self:start} .pills{grid-area:p} .ring{grid-area:r}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="mark">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2.2 4 5.2v6c0 5 3.4 9.3 8 10.6 4.6-1.3 8-5.6 8-10.6v-6L12 2.2Z"
+          stroke="#c8f135" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M8.4 12.1l2.5 2.6 4.7-5.1" stroke="#c8f135" stroke-width="1.8"
+          stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div>
+      <h1>dependency<span class="dim">·</span>security<span class="dim">·</span>audit</h1>
+      <p class="tag">Upload a <b>Python dependency file</b> and scan every package for known vulnerabilities, license compliance, and supply-chain health, live from OSV.dev, deps.dev OpenSSF Scorecard, and PyPI.</p>
+    </div>
+  </header>
+
+  <!-- intake -->
+  <div class="card intake">
+    <div class="drop" id="drop">
+      <div class="ico">📦</div>
+      <div class="big">Drop a <u>dependency file</u> here, or click to browse</div>
+      <div class="sub">requirements.txt · pyproject.toml · poetry.lock · uv.lock</div>
+    </div>
+    <textarea id="paste" class="hidden" placeholder="# or paste your requirements here&#10;requests==2.31.0&#10;django&gt;=4.2"></textarea>
+    <div class="policy">
+      <label for="allowLic">⚖ commercially-approved licenses</label>
+      <input type="text" id="allowLic" value="MIT, Apache-2.0, BSD-3-Clause, 0BSD, BSD, Zlib, CC0-1.0, BSD-2-Clause, ISC, Python-2.0, Unlicense, HPND, BSL-1.0"
+        placeholder="comma-separated SPDX ids">
+      <span class="policy-hint">anything outside this list is flagged · editable after a scan</span>
+    </div>
+    <div class="row-actions">
+      <button class="toggle-paste" id="togglePaste">⌨ paste instead</button>
+      <button class="toggle-paste" id="loadExample">↳ load example</button>
+      <div class="sep"></div>
+      <button class="btn btn-primary" id="scanBtn" disabled>Scan dependencies</button>
+    </div>
+    <div class="progress" id="progress">
+      <div class="bar"><i id="barFill"></i></div>
+      <div class="pmeta"><span id="pStatus">scanning…</span><span id="pCount">0 / 0</span></div>
+    </div>
+  </div>
+
+  <!-- results -->
+  <div id="results" class="hidden">
+    <div class="summary" id="summary"></div>
+    <div class="controls">
+      <input type="text" class="search" id="search" placeholder="filter packages…">
+      <button class="chip active" data-f="all">all</button>
+      <button class="chip" data-f="vuln">vulnerable</button>
+      <button class="chip" data-f="license">license ⚠</button>
+      <button class="chip" data-f="clean">clean</button>
+      <button class="chip" data-f="issue">errors</button>
+      <select class="sortsel" id="sort">
+        <option value="risk">sort: risk</option>
+        <option value="health">sort: health ↑</option>
+        <option value="name">sort: name</option>
+        <option value="vulncount">sort: vuln count</option>
+      </select>
+      <button class="btn btn-ghost" id="exportBtn">↓ report</button>
+    </div>
+    <div class="list" id="list"></div>
+  </div>
+
+  <div class="empty" id="emptyState">
+    <div class="e-ico">🛡</div>
+    <div>No scan yet. Drop a requirements.txt above to begin.</div>
+  </div>
+
+  <footer>
+    data sources — vulnerabilities: OSV.dev (aggregates GitHub Advisory DB, PySEC &amp; more) ·
+    health: deps.dev OpenSSF Scorecard · licenses: PyPI SPDX expression / classifiers · metadata: PyPI JSON API<br>
+    formats — requirements*.txt (pip), pyproject.toml (PEP 621, PEP 735 groups, Poetry), poetry.lock, uv.lock · lock files give exact-version results<br>
+    note — Snyk advisory pages can't be read from a browser (no CORS / token-gated API), so each package links out to its Snyk page directly. OSV draws from the same core advisory feeds.
+  </footer>
+</div>
+
+<input type="file" id="fileInput" accept=".txt,.toml,.lock,text/plain" class="hidden">
+
+<script>
+"use strict";
+
+/* ---------- elements ---------- */
+const $ = id => document.getElementById(id);
+const drop=$('drop'), fileInput=$('fileInput'), paste=$('paste'), scanBtn=$('scanBtn');
+const togglePaste=$('togglePaste'), loadExample=$('loadExample'), progress=$('progress');
+const barFill=$('barFill'), pStatus=$('pStatus'), pCount=$('pCount');
+const results=$('results'), summaryEl=$('summary'), listEl=$('list'), emptyState=$('emptyState');
+const searchEl=$('search'), sortEl=$('sort'), exportBtn=$('exportBtn'), allowLic=$('allowLic');
+
+let RAW = "";              // current dependency-file text
+let FILENAME = "";         // uploaded file name (blank when pasted)
+let PKGS = [];             // scan entries
+const expanded = new Set();
+let activeFilter = 'all';
+
+const EXAMPLE = `# example requirements.txt
+requests==2.19.1
+django==2.2.0
+flask==0.12.2
+pyyaml==5.1
+jinja2==2.10
+urllib3==1.24.1
+pillow==8.0.0
+cryptography==3.2
+numpy==1.21.0
+tokenizers==0.13.0`;
+
+/* ---------- requirements parsing ---------- */
+function normName(n){ return n.toLowerCase().replace(/[-_.]+/g,'-'); }
+
+function parseRequirements(text){
+  const out=[]; const seen=new Set();
+  let buf='';
+  for(let raw of text.split(/\r?\n/)){
+    let line=raw;
+    if(line.trimEnd().endsWith('\\')){ buf+=line.trimEnd().slice(0,-1)+' '; continue; }
+    line=buf+line; buf='';
+    line=line.replace(/\s+#.*$/,'');               // inline comment
+    if(line.trimStart().startsWith('#')) continue;  // full comment
+    line=line.trim();
+    if(!line) continue;
+    if(line.startsWith('-')) continue;              // -r / -e / --hash / --index-url
+    line=line.split(';')[0].trim();                 // env markers
+    if(/^(git\+|hg\+|svn\+|bzr\+|https?:|file:)/i.test(line)){
+      out.push({raw,name:line.slice(0,60),unparseable:true,note:'URL / VCS install — not auditable here'});
+      continue;
+    }
+    const m=line.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(\[[^\]]*\])?\s*(.*)$/);
+    if(!m){ out.push({raw,name:line.slice(0,60),unparseable:true,note:'Could not parse line'}); continue; }
+    const name=m[1], extras=(m[2]||''), spec=(m[3]||'').trim();
+    const nn=normName(name);
+    if(seen.has(nn)) continue;
+    seen.add(nn);
+    let pinned=null;
+    const eq=spec.match(/==\s*([A-Za-z0-9][A-Za-z0-9.\-+!]*)/);
+    if(eq) pinned=eq[1].replace(/\.\*$/,'');
+    out.push({raw,name,normName:nn,extras,specifier:spec,pinnedVersion:pinned,status:'queued',vulns:[]});
+  }
+  return out;
+}
+
+/* ---------- TOML formats: pyproject.toml / poetry.lock / uv.lock ---------- */
+// strip a TOML end-of-line comment, respecting quoted strings
+function stripTomlComment(line){
+  let q=null,out='';
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(q){ out+=c; if(c===q) q=null; }
+    else { if(c==='#') break; if(c==='"'||c==="'"){ q=c; } out+=c; }
+  }
+  return out;
+}
+// scan array text for top-level quoted strings (skips strings inside {inline tables})
+function scanDepArray(text,depth){
+  const strings=[]; let cur=null,q=null,brace=0;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){ if(c===q){ if(brace===0) strings.push(cur); cur=null; q=null; } else cur+=c; }
+    else if(c==='"'||c==="'"){ q=c; cur=''; }
+    else if(c==='{'){ brace++; }
+    else if(c==='}'){ if(brace>0) brace--; }
+    else if(c==='['){ depth++; }
+    else if(c===']'){ depth--; if(depth<=0) return {strings,closed:true,depth:0}; }
+    else if(c==='#'){ break; }
+  }
+  return {strings,closed:false,depth};
+}
+// poetry.lock & uv.lock — both are arrays of [[package]] tables
+function parseLockFile(text){
+  const out=[]; let cur=null;
+  const flush=()=>{
+    if(cur&&cur.name&&!/editable|virtual|directory/i.test(cur.source||''))
+      out.push({name:cur.name,version:cur.version||null});
+    cur=null;
+  };
+  for(const raw of text.split(/\r?\n/)){
+    const t=raw.trim();
+    if(/^\[\[\s*package\s*\]\]/.test(t)){ flush(); cur={}; continue; }
+    if(t.startsWith('[')){ flush(); continue; }   // any other table ends the package
+    if(!cur) continue;
+    let m;
+    if(cur.name===undefined&&(m=t.match(/^name\s*=\s*["']([^"']+)["']/))) cur.name=m[1];
+    else if(cur.version===undefined&&(m=t.match(/^version\s*=\s*["']([^"']+)["']/))) cur.version=m[1];
+    else if(/^source\s*=/.test(t)) cur.source=t;
+  }
+  flush();
+  return out;
+}
+// pyproject.toml — PEP 621 deps, PEP 735 dependency-groups, optional-deps, Poetry
+function parsePyproject(text){
+  const reqStrings=[], poetryDeps=[];
+  let section='', inArray=false, depth=0;
+  for(const raw of text.split(/\r?\n/)){
+    if(inArray){
+      const r=scanDepArray(raw,depth);
+      r.strings.forEach(s=>reqStrings.push(s));
+      depth=r.depth; if(r.closed) inArray=false;
+      continue;
+    }
+    const t=stripTomlComment(raw).trim();
+    if(!t) continue;
+    const hdr=t.match(/^\[\[?\s*([^\]]+?)\s*\]\]?$/);
+    if(hdr){
+      section=hdr[1].trim().replace(/["']/g,'');
+      const sub=section.match(/^tool\.poetry\..*dependencies\.([^.]+)$/);
+      if(sub&&sub[1].toLowerCase()!=='python') poetryDeps.push({name:sub[1],version:null});
+      continue;
+    }
+    const isPoetry=/poetry/.test(section)&&/dependencies$/.test(section);
+    if(section==='project'&&/^dependencies\s*=\s*\[/.test(t)){
+      const r=scanDepArray(t.slice(t.indexOf('[')+1),1);
+      r.strings.forEach(s=>reqStrings.push(s));
+      if(!r.closed){ inArray=true; depth=r.depth; }
+    } else if(isPoetry){
+      const m=t.match(/^["']?([A-Za-z0-9][A-Za-z0-9._-]*)["']?\s*=\s*(.+)$/);
+      if(m&&m[1].toLowerCase()!=='python'){
+        const val=m[2].trim(); let ver=null,vm;
+        if((vm=val.match(/(?:^|[^>~<=!])==\s*([0-9][A-Za-z0-9.\-+!]*)/))) ver=vm[1];
+        else if((vm=val.match(/version\s*=\s*["']\s*==?\s*([0-9][A-Za-z0-9.\-+!]*)["']/))) ver=vm[1];
+        poetryDeps.push({name:m[1],version:ver});
+      }
+    } else if((/optional-dependencies$/.test(section)||section==='dependency-groups'
+               ||/dev-dependencies$/.test(section))&&!isPoetry){
+      const br=t.indexOf('[');
+      if(br>=0&&/=\s*\[/.test(t)){
+        const r=scanDepArray(t.slice(br+1),1);
+        r.strings.forEach(s=>reqStrings.push(s));
+        if(!r.closed){ inArray=true; depth=r.depth; }
+      }
+    }
+  }
+  return {reqStrings,poetryDeps};
+}
+
+function mkEntry(name,version){
+  return {raw:name+(version?'=='+version:''),name,normName:normName(name),extras:'',
+    specifier:version?'=='+version:'',pinnedVersion:version||null,status:'queued',vulns:[]};
+}
+function dedupeEntries(list){
+  const seen=new Set(),out=[];
+  for(const e of list){
+    if(e.unparseable){ out.push(e); continue; }
+    if(!e.normName||seen.has(e.normName)) continue;
+    seen.add(e.normName); out.push(e);
+  }
+  return out;
+}
+// pick a parser by content (reliable) then filename
+function detectKind(text,filename){
+  if(/\[\[\s*package\s*\]\]/.test(text)) return 'lock';
+  if(/^[ \t]*\[\s*(project|build-system|tool|dependency-groups)\b/m.test(text)) return 'pyproject';
+  const fn=(filename||'').toLowerCase();
+  if(fn.endsWith('.lock')) return 'lock';
+  if(fn.endsWith('.toml')) return 'pyproject';
+  return 'requirements';
+}
+function buildEntries(text,filename){
+  const kind=detectKind(text,filename);
+  let entries;
+  if(kind==='lock'){
+    entries=dedupeEntries(parseLockFile(text).map(p=>mkEntry(p.name,p.version)));
+  } else if(kind==='pyproject'){
+    const {reqStrings,poetryDeps}=parsePyproject(text);
+    entries=parseRequirements(reqStrings.join('\n'));
+    poetryDeps.forEach(d=>entries.push(mkEntry(d.name,d.version)));
+    entries=dedupeEntries(entries);
+  } else {
+    entries=parseRequirements(text);
+  }
+  return {kind,entries};
+}
+
+/* ---------- CVSS 3.x base score ---------- */
+function roundup(x){ const i=Math.round(x*100000); return i%10000===0 ? i/100000 : (Math.floor(i/10000)+1)/10; }
+function cvss3(vec){
+  const m={}; vec.split('/').forEach(p=>{const[k,v]=p.split(':'); if(k) m[k]=v;});
+  const AV={N:.85,A:.62,L:.55,P:.2}[m.AV];
+  const AC={L:.77,H:.44}[m.AC];
+  const changed=m.S==='C';
+  const PR=changed?{N:.85,L:.68,H:.5}[m.PR]:{N:.85,L:.62,H:.27}[m.PR];
+  const UI={N:.85,R:.62}[m.UI];
+  const cia=v=>({H:.56,L:.22,N:0})[v];
+  const C=cia(m.C),I=cia(m.I),A=cia(m.A);
+  if([AV,AC,PR,UI,C,I,A].some(x=>x===undefined)) return null;
+  const iss=1-((1-C)*(1-I)*(1-A));
+  const impact=changed ? 7.52*(iss-.029)-3.25*Math.pow(iss-.02,15) : 6.42*iss;
+  const expl=8.22*AV*AC*PR*UI;
+  if(impact<=0) return 0;
+  return changed ? roundup(Math.min(1.08*(impact+expl),10)) : roundup(Math.min(impact+expl,10));
+}
+function bucket(s){ return s>=9?'Critical':s>=7?'High':s>=4?'Medium':s>0?'Low':'None'; }
+const SEV_RANK={Critical:4,High:3,Medium:2,Low:1,Unknown:0,None:0};
+
+function severityOf(v){
+  const vecs=[];
+  const grab=a=>{ if(Array.isArray(a)) a.forEach(s=>{ if(s&&typeof s.score==='string') vecs.push(s.score); }); };
+  grab(v.severity); (v.affected||[]).forEach(a=>grab(a.severity));
+  let best=null;
+  for(const s of vecs){ if(/^CVSS:3\./.test(s)){ const n=cvss3(s); if(n!=null&&(best==null||n>best)) best=n; } }
+  if(best!=null) return {label:bucket(best),score:best};
+  const texts=[];
+  if(v.database_specific&&v.database_specific.severity) texts.push(v.database_specific.severity);
+  (v.affected||[]).forEach(a=>{ if(a.database_specific&&a.database_specific.severity) texts.push(a.database_specific.severity); });
+  for(const t of texts){
+    const u=String(t).toUpperCase();
+    if(u.includes('CRIT')) return {label:'Critical',score:null};
+    if(u.includes('HIGH')) return {label:'High',score:null};
+    if(u.includes('MOD')||u.includes('MED')) return {label:'Medium',score:null};
+    if(u.includes('LOW')) return {label:'Low',score:null};
+  }
+  return {label:'Unknown',score:null};
+}
+
+function processVuln(v){
+  const sev=severityOf(v);
+  const fixed=new Set(); const ranges=[];
+  (v.affected||[]).forEach(a=>{
+    (a.ranges||[]).forEach(rg=>{
+      let intro=null,fix=null,last=null;
+      (rg.events||[]).forEach(e=>{
+        if(e.introduced!==undefined) intro=e.introduced;
+        if(e.fixed!==undefined){ fix=e.fixed; fixed.add(e.fixed); }
+        if(e.last_affected!==undefined) last=e.last_affected;
+      });
+      let s='';
+      if(intro!==null) s+=(intro==='0'?'all earlier':'≥ '+intro);
+      if(fix) s+=(s?'  ':'')+'< '+fix;
+      else if(last) s+=(s?'  ':'')+'≤ '+last;
+      if(s) ranges.push(s);
+    });
+  });
+  return {
+    id:v.id, aliases:(v.aliases||[]).filter(a=>/^CVE-/i.test(a)),
+    summary:v.summary||(v.details?v.details.slice(0,260)+(v.details.length>260?'…':''):'No description provided.'),
+    severity:sev, fixed:[...fixed], ranges,
+    published:v.published||v.modified||null,
+    references:(v.references||[]).map(r=>r.url).filter(Boolean)
+  };
+}
+
+/* ---------- helpers ---------- */
+function ghRepo(meta){
+  if(!meta) return null;
+  const cands=[];
+  const pu=meta.info&&meta.info.project_urls;
+  if(pu) Object.values(pu).forEach(u=>u&&cands.push(u));
+  if(meta.info&&meta.info.home_page) cands.push(meta.info.home_page);
+  for(const u of cands){
+    const m=String(u).match(/github\.com[/:]+([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)/i);
+    if(m) return m[1]+'/'+m[2].replace(/\.git$/i,'');
+  }
+  return null;
+}
+function timeAgo(iso){
+  if(!iso) return '—';
+  const d=new Date(iso); if(isNaN(d)) return '—';
+  const days=Math.floor((Date.now()-d)/864e5);
+  if(days<1) return 'today';
+  if(days<31) return days+'d ago';
+  if(days<365) return Math.floor(days/30)+'mo ago';
+  const y=(days/365);
+  return y.toFixed(1)+'y ago';
+}
+function daysSince(iso){ if(!iso) return null; const d=new Date(iso); return isNaN(d)?null:Math.floor((Date.now()-d)/864e5); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ---------- license classification ---------- */
+// [canonical SPDX id, category, matcher]   category: permissive | weak-copyleft | copyleft | noncommercial
+// order matters — more specific entries first (AGPL/LGPL before generic GPL)
+const LICENSE_DB=[
+  ['Apache-2.0','permissive',/APACHE.{0,6}2|APACHE SOFTWARE LICENSE|\bASL\b/],
+  ['Apache-1.1','permissive',/APACHE.{0,6}1.{0,3}1/],
+  ['BSD-3-Clause','permissive',/BSD.{0,3}3|3.{0,3}CLAUSE BSD|NEW BSD|MODIFIED BSD|REVISED BSD/],
+  ['BSD-2-Clause','permissive',/BSD.{0,3}2|2.{0,3}CLAUSE BSD|SIMPLIFIED BSD|FREEBSD LICENSE/],
+  ['0BSD','permissive',/\b0.{0,3}BSD\b|ZERO.{0,3}CLAUSE BSD/],
+  ['ISC','permissive',/\bISC\b/],
+  ['HPND','permissive',/HISTORICAL PERMISSION NOTICE|\bHPND\b/],
+  ['MIT','permissive',/\bMIT\b|\bEXPAT\b/],
+  ['Python-2.0','permissive',/PYTHON SOFTWARE FOUNDATION|\bPSF\b|PYTHON.{0,3}2.{0,3}0/],
+  ['Zlib','permissive',/\bZLIB\b/],
+  ['BSL-1.0','permissive',/BOOST SOFTWARE|\bBSL.{0,3}1/],
+  ['Unlicense','permissive',/UNLICENSE/],
+  ['WTFPL','permissive',/WTFPL/],
+  ['CC0-1.0','permissive',/\bCC0\b/],
+  ['LGPL','weak-copyleft',/LESSER GENERAL PUBLIC|LIBRARY GENERAL PUBLIC|\bLGPL\b/],
+  ['MPL-2.0','weak-copyleft',/MOZILLA PUBLIC|\bMPL\b/],
+  ['EPL','weak-copyleft',/ECLIPSE PUBLIC|\bEPL\b/],
+  ['CDDL','weak-copyleft',/\bCDDL\b|COMMON DEVELOPMENT AND DISTRIBUTION/],
+  ['AGPL-3.0','copyleft',/AFFERO|\bAGPL\b/],
+  ['GPL-3.0','copyleft',/\bGPL.{0,3}3|GPLV3|GENERAL PUBLIC LICENSE.{0,10}3/],
+  ['GPL-2.0','copyleft',/\bGPL.{0,3}2|GPLV2|GENERAL PUBLIC LICENSE.{0,10}2/],
+  ['GPL','copyleft',/\bGPL\b|GNU GENERAL PUBLIC/],
+  ['EUPL','copyleft',/EUROPEAN UNION PUBLIC|\bEUPL\b/],
+  ['SSPL','noncommercial',/SERVER SIDE PUBLIC|\bSSPL\b/],
+  ['CC-BY-NC','noncommercial',/CC.{0,3}BY.{0,3}NC|NON.{0,3}COMMERCIAL/],
+  ['Proprietary','noncommercial',/PROPRIETARY|ALL RIGHTS RESERVED|CLOSED SOURCE/],
+  ['BSD','permissive',/\bBSD\b/]   // generic / unspecified-clause BSD — catch-all
+];
+// full-text fingerprints — used when the license field holds the whole license body
+const LICENSE_TEXT=[
+  ['MIT',/PERMISSION IS HEREBY GRANTED FREE OF CHARGE/],
+  ['Apache-2.0',/APACHE LICENSE VERSION 2/],
+  ['AGPL-3.0',/GNU AFFERO GENERAL PUBLIC LICENSE/],
+  ['LGPL',/GNU LESSER GENERAL PUBLIC LICENSE/],
+  ['GPL-3.0',/GNU GENERAL PUBLIC LICENSE VERSION 3/],
+  ['GPL-2.0',/GNU GENERAL PUBLIC LICENSE VERSION 2/],
+  ['MPL-2.0',/MOZILLA PUBLIC LICENSE VERSION 2/]
+];
+function catOf(id){ const h=LICENSE_DB.find(e=>e[0]===id); return h?h[1]:'unknown'; }
+function norm(s){ return String(s||'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim(); }
+
+function resolveToken(str){
+  const t=norm(str);
+  if(!t) return null;
+  for(const [id,cat,rx] of LICENSE_DB){ if(rx.test(t)) return {id,cat}; }
+  return null;
+}
+function detectFromText(text){
+  const t=norm(text);
+  for(const [id,rx] of LICENSE_TEXT){
+    if(rx.test(t)){
+      if(id==='MIT'||/REDISTRIBUTION AND USE IN SOURCE AND BINARY FORMS/.test(t)){}
+      return {id,cat:catOf(id)};
+    }
+  }
+  // BSD body — 2 vs 3 clause distinguished by the "neither the name" clause
+  if(/REDISTRIBUTION AND USE IN SOURCE AND BINARY FORMS/.test(t)){
+    const id=/NEITHER THE NAME/.test(t)?'BSD-3-Clause':'BSD-2-Clause';
+    return {id,cat:'permissive'};
+  }
+  return null;
+}
+function parseSpdxExpr(expr){
+  const clean=expr.replace(/[()]/g,' ');
+  // SPDX operators OR / AND / WITH are whitespace-delimited tokens — not the
+  // "or"/"and" that can appear inside an id such as GPL-3.0-or-later
+  const op=/\s+OR\s+/i.test(clean)?'or':(/\s+AND\s+/i.test(clean)?'and':'single');
+  const parts=clean.split(/\s+(?:OR|AND)\s+/i)
+    .map(s=>s.replace(/\s+WITH\s+.*/i,'').trim()).filter(Boolean);
+  const tokens=parts.map(p=>resolveToken(p)||{id:p,cat:'unknown'});
+  return {ok:true,tokens,op,raw:expr,
+    display:tokens.map(t=>t.id).join(op==='or'?' / ':' + ')};
+}
+function detectLicense(meta){
+  if(!meta||!meta.info) return {ok:false,tokens:[],op:'single',display:'Unknown',raw:''};
+  const info=meta.info;
+  const expr=(info.license_expression||'').trim();
+  if(expr) return parseSpdxExpr(expr);
+  const tokens=[];
+  (info.classifiers||[]).filter(c=>c.startsWith('License ::')).forEach(c=>{
+    const r=resolveToken(c.replace(/^License ::/,'').replace(/OSI Approved/ig,''));
+    if(r) tokens.push(r);
+  });
+  const lic=(info.license||'').trim();
+  if(lic){
+    const r=lic.length>140?detectFromText(lic):resolveToken(lic);
+    if(r) tokens.push(r);
+  }
+  const seen=new Set(), uniq=[];
+  tokens.forEach(t=>{ if(!seen.has(t.id)){ seen.add(t.id); uniq.push(t); } });
+  if(!uniq.length){
+    const raw=(lic||(info.classifiers||[]).filter(c=>c.startsWith('License ::'))
+      .map(c=>c.split('::').pop().trim())[0]||'').trim();
+    return {ok:false,tokens:[],op:'single',display:raw?raw.slice(0,46):'Unknown',raw};
+  }
+  return {ok:true,tokens:uniq,op:uniq.length>1?'or':'single',raw:lic,
+    display:uniq.map(t=>t.id).join(' / ')};
+}
+function allowSet(){
+  const s=new Set();
+  (allowLic.value||'').split(',').forEach(part=>{
+    const raw=part.trim(); if(!raw) return;
+    s.add(raw.toUpperCase());
+    const r=resolveToken(raw);
+    if(r) s.add(r.id.toUpperCase());
+  });
+  return s;
+}
+// evaluate a detected license against the current policy → {level, short, title, reason}
+function licenseVerdict(det){
+  const allow=allowSet();
+  if(!det||!det.tokens||!det.tokens.length){
+    return {level:'review',short:(det&&det.display)||'Unknown',title:'License unverified',
+      reason:'No usable license metadata was found on PyPI for this package. Confirm the license manually before distribution.'};
+  }
+  const rankOf=t=>{
+    if(allow.has(t.id.toUpperCase())) return 0;            // approved
+    if(t.cat==='permissive'||t.cat==='unknown') return 1;  // review
+    return 2;                                              // flagged (copyleft / noncommercial)
+  };
+  const subs=det.tokens.map(t=>({t,r:rankOf(t)}));
+  const pick=det.op==='or'
+    ? subs.reduce((a,b)=>b.r<a.r?b:a)    // dual-licensed: you may pick the best
+    : subs.reduce((a,b)=>b.r>a.r?b:a);   // AND / single: worst term governs
+  const id=pick.t.id, cat=pick.t.cat;
+  if(pick.r===0)
+    return {level:'allowed',short:det.display,title:'Approved',
+      reason:id+' is on your commercial license policy — permissive, safe for proprietary and commercial use.'};
+  if(pick.r===1){
+    if(cat==='permissive')
+      return {level:'review',short:det.display,title:'Not on policy list',
+        reason:id+' is a permissive license but not in your approved set. It is generally safe for commercial use — confirm it meets your policy, and add it to the list above to clear this flag.'};
+    return {level:'review',short:det.display,title:'License unverified',
+      reason:'Could not map "'+esc(det.raw||det.display)+'" to a recognised license. Verify it manually.'};
+  }
+  const reason={
+    'copyleft':id+' is a strong copyleft license. Shipping a product that includes or links this package can require you to release your own source code under compatible terms. Review with legal before any commercial use.',
+    'weak-copyleft':id+' is a weak copyleft license. Changes to this package\u2019s own files generally must be shared, though it can usually sit inside a larger proprietary product. Confirm against your distribution model.',
+    'noncommercial':id+' restricts commercial use or is proprietary. Do not bundle it into a commercial product without explicit written permission from the rights holder.'
+  }[cat]||(id+' is not a permissive license — review before commercial use.');
+  const title=cat==='weak-copyleft'?'Weak copyleft':cat==='noncommercial'?'Commercial use restricted':'Copyleft license';
+  return {level:'flagged',short:det.display,title,reason};
+}
+
+function computeHealth(p){
+  if(p.unparseable||p.notFound) return null;
+  let score=100;
+  const c=p.counts||{Critical:0,High:0,Medium:0,Low:0,Unknown:0};
+  score-=c.Critical*45; score-=c.High*25; score-=c.Medium*9; score-=c.Low*3; score-=c.Unknown*6;
+  const d=daysSince(p.lastReleaseDate);
+  if(d!=null){ if(d>1095) score-=16; else if(d>540) score-=9; else if(d>365) score-=4; }
+  if(p.yanked) score-=30;
+  if(p.pinnedVersion&&p.latest&&p.pinnedVersion!==p.latest) score-=3;
+  const sc=p.project&&p.project.scorecard&&typeof p.project.scorecard.overallScore==='number'
+    ? p.project.scorecard.overallScore : null;
+  if(sc!=null) score=score*0.72 + (sc*10)*0.28;
+  return Math.max(0,Math.min(100,Math.round(score)));
+}
+function grade(h){
+  if(h==null) return {g:'—',c:'var(--txt-3)'};
+  if(h>=90) return {g:'A',c:'var(--clean)'};
+  if(h>=75) return {g:'B',c:'#9cd11f'};
+  if(h>=60) return {g:'C',c:'var(--med)'};
+  if(h>=40) return {g:'D',c:'var(--high)'};
+  return {g:'F',c:'var(--crit)'};
+}
+
+/* ---------- scanning ---------- */
+async function scanOne(p){
+  if(p.unparseable){ p.status='skipped'; return; }
+  p.status='scanning'; renderList();
+
+  // 1. PyPI metadata
+  let meta=null;
+  try{
+    const r=await fetch('https://pypi.org/pypi/'+encodeURIComponent(p.normName)+'/json');
+    if(r.ok) meta=await r.json();
+    else if(r.status===404) p.notFound=true;
+    else p.pypiError=true;
+  }catch(e){ p.pypiError=true; }
+  p.meta=meta;
+
+  if(meta&&meta.info){
+    p.latest=meta.info.version||null;
+    p.summaryText=meta.info.summary||'';
+    p.license=meta.info.license_expression||meta.info.license||
+      (meta.info.classifiers||[]).filter(c=>c.startsWith('License ::')).map(c=>c.split('::').pop().trim())[0]||'';
+    p.requiresPython=meta.info.requires_python||'';
+    p.yanked=!!meta.info.yanked;
+    p.releaseCount=Object.keys(meta.releases||{}).length;
+  }
+  p.lic=detectLicense(meta);
+  const resolved=p.pinnedVersion||p.latest||null;
+  p.resolvedVersion=resolved;
+  p.versionAssumed=!p.pinnedVersion&&!!resolved;
+  if(meta&&meta.releases){
+    const files=meta.releases[resolved]||meta.releases[p.latest]||[];
+    if(files.length) p.lastReleaseDate=files[files.length-1].upload_time_iso_8601||files[0].upload_time_iso_8601;
+  }
+
+  // 2. OSV vulnerabilities
+  try{
+    const body={package:{name:p.normName,ecosystem:'PyPI'}};
+    if(resolved) body.version=resolved;
+    const r=await fetch('https://api.osv.dev/v1/query',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
+    });
+    if(r.ok){
+      const d=await r.json();
+      p.vulns=(d.vulns||[]).map(processVuln);
+    } else p.osvError=true;
+  }catch(e){ p.osvError=true; }
+
+  // tally
+  const counts={Critical:0,High:0,Medium:0,Low:0,Unknown:0};
+  let maxRank=0;
+  p.vulns.forEach(v=>{ counts[v.severity.label]=(counts[v.severity.label]||0)+1;
+    maxRank=Math.max(maxRank,SEV_RANK[v.severity.label]||0); });
+  p.counts=counts; p.maxRank=maxRank;
+  p.vulns.sort((a,b)=>(SEV_RANK[b.severity.label]||0)-(SEV_RANK[a.severity.label]||0));
+
+  // 3. deps.dev OpenSSF Scorecard
+  const repo=ghRepo(meta);
+  p.repo=repo;
+  if(repo){
+    try{
+      const r=await fetch('https://api.deps.dev/v3/projects/'+encodeURIComponent('github.com/'+repo));
+      if(r.ok) p.project=await r.json();
+    }catch(e){ /* optional */ }
+  }
+
+  p.health=computeHealth(p);
+  p.status='done';
+}
+
+async function runScan(){
+  PKGS=buildEntries(RAW,FILENAME).entries;
+  if(!PKGS.length){
+    emptyState.classList.remove('hidden');
+    emptyState.innerHTML='<div class="e-ico">⚠</div><div>No packages found in that file.</div>';
+    results.classList.add('hidden');
+    return;
+  }
+  expanded.clear();
+  emptyState.classList.add('hidden');
+  results.classList.remove('hidden');
+  progress.classList.add('on');
+  scanBtn.disabled=true;
+  renderSummary(); renderList();
+
+  const auditable=PKGS.filter(p=>!p.unparseable);
+  let done=0;
+  const total=auditable.length;
+  pCount.textContent='0 / '+total;
+  barFill.style.width='0%';
+
+  const queue=auditable.slice();
+  const CONCURRENCY=5;
+  async function worker(){
+    while(queue.length){
+      const p=queue.shift();
+      await scanOne(p);
+      done++;
+      pCount.textContent=done+' / '+total;
+      pStatus.textContent='scanning · '+p.name;
+      barFill.style.width=(done/total*100)+'%';
+      renderSummary(); renderList();
+    }
+  }
+  await Promise.all(Array.from({length:Math.min(CONCURRENCY,total)},worker));
+
+  pStatus.textContent='scan complete';
+  setTimeout(()=>progress.classList.remove('on'),900);
+  scanBtn.disabled=false;
+  renderSummary(); renderList();
+}
+
+/* ---------- rendering ---------- */
+function renderSummary(){
+  const done=PKGS.filter(p=>p.status==='done');
+  const vulnPkgs=done.filter(p=>p.vulns.length>0);
+  const totalVulns=done.reduce((s,p)=>s+p.vulns.length,0);
+  const critHigh=done.reduce((s,p)=>s+(p.counts?p.counts.Critical+p.counts.High:0),0);
+  const healths=done.map(p=>p.health).filter(h=>h!=null);
+  const avg=healths.length?Math.round(healths.reduce((a,b)=>a+b,0)/healths.length):null;
+  const licV=done.map(p=>licenseVerdict(p.lic));
+  const licWarn=licV.filter(v=>v.level!=='allowed').length;
+  const licFlag=licV.filter(v=>v.level==='flagged').length;
+  const cards=[
+    {k:'packages',v:PKGS.filter(p=>!p.unparseable).length,cls:''},
+    {k:'vulnerable',v:vulnPkgs.length,cls:vulnPkgs.length?'crit':'ok',note:vulnPkgs.length?'need attention':'none found'},
+    {k:'total CVEs',v:totalVulns,cls:totalVulns?'crit':'ok'},
+    {k:'critical + high',v:critHigh,cls:critHigh?'crit':'ok'},
+    {k:'license flags',v:licWarn,cls:licFlag?'crit':(licWarn?'':'ok'),
+      note:licFlag?licFlag+' need legal review':(licWarn?'not on policy':'all approved')},
+    {k:'avg health',v:avg==null?'—':avg,cls:'acc',note:avg==null?'':'/ 100'}
+  ];
+  summaryEl.innerHTML=cards.map(c=>`
+    <div class="card stat">
+      <div class="k">${c.k}</div>
+      <div class="v ${c.cls}">${c.v}</div>
+      ${c.note?`<div class="note">${c.note}</div>`:''}
+    </div>`).join('');
+}
+
+function ring(h){
+  const g=grade(h);
+  const R=22, CIRC=2*Math.PI*R;
+  const off=h==null?CIRC:CIRC*(1-h/100);
+  return `<div class="ring">
+    <svg width="54" height="54" viewBox="0 0 54 54">
+      <circle cx="27" cy="27" r="${R}" fill="none" stroke="rgba(255,255,255,.07)" stroke-width="5"/>
+      <circle cx="27" cy="27" r="${R}" fill="none" stroke="${g.c}" stroke-width="5"
+        stroke-linecap="round" stroke-dasharray="${CIRC}" stroke-dashoffset="${off}"/>
+    </svg>
+    <div class="lbl"><div class="g" style="color:${g.c}">${g.g}</div>
+    <div class="s">${h==null?'n/a':h}</div></div>
+  </div>`;
+}
+
+function licPill(p){
+  if(!p.lic) return '';
+  const v=licenseVerdict(p.lic);
+  const cls=v.level==='allowed'?'ok':v.level==='review'?'review':'flag';
+  const warn=v.level!=='allowed'?' ⚠':'';
+  const txt=esc(v.short&&v.short.length>16?v.short.slice(0,15)+'…':(v.short||'Unknown'));
+  return `<span class="lic ${cls}" title="${esc(v.title)} — ${esc(v.short)}">${txt}${warn}</span>`;
+}
+function pills(p){
+  if(p.status!=='done') return '';
+  if(p.notFound) return '<span class="pill u">not on pypi</span>';
+  if(p.osvError) return '<span class="pill m">vuln data error</span>';
+  const c=p.counts;
+  if(!c||p.vulns.length===0) return '<span class="pill u" style="color:var(--clean);border-color:rgba(51,211,153,.3);background:rgba(51,211,153,.08)">no known cves</span>';
+  const out=[];
+  if(c.Critical) out.push(`<span class="pill c">${c.Critical} critical</span>`);
+  if(c.High) out.push(`<span class="pill h">${c.High} high</span>`);
+  if(c.Medium) out.push(`<span class="pill m">${c.Medium} medium</span>`);
+  if(c.Low) out.push(`<span class="pill l">${c.Low} low</span>`);
+  if(c.Unknown) out.push(`<span class="pill u">${c.Unknown} unrated</span>`);
+  return out.join('');
+}
+
+function verdict(p){
+  if(p.unparseable) return '<span class="verdict unk">SKIPPED</span>';
+  if(p.status!=='done') return '<span class="verdict wait"><span class="spin" style="display:inline-block;vertical-align:-2px"></span> SCANNING</span>';
+  if(p.notFound) return '<span class="verdict unk">NOT FOUND</span>';
+  if(p.osvError) return '<span class="verdict unk">SCAN ERROR</span>';
+  if(p.vulns.length>0) return '<span class="verdict bad">⚠ VULNERABLE</span>';
+  return '<span class="verdict good">✓ NO KNOWN CVES</span>';
+}
+
+function detail(p,idx){
+  if(p.unparseable) return `<div class="detail"><div class="dsec"><div class="notice">${esc(p.note)}<br>${esc(p.raw)}</div></div></div>`;
+  let h='<div class="detail">';
+
+  // vulnerabilities
+  if(p.osvError){
+    h+=`<div class="dsec"><div class="notice">Vulnerability lookup failed (OSV.dev unreachable). The browser may have blocked the request — retry the scan.</div></div>`;
+  } else if(p.notFound){
+    h+=`<div class="dsec"><div class="notice">Package not found on PyPI. It may be private, internal, renamed, or misspelled. No public vulnerability data available.</div></div>`;
+  } else if(p.vulns.length){
+    h+=`<div class="dsec"><h4>vulnerabilities · ${p.vulns.length}</h4>`;
+    p.vulns.forEach(v=>{
+      const sc=v.severity.label.toLowerCase();
+      const scl=sc==='critical'?'crit':sc==='high'?'high':sc==='medium'?'med':sc==='low'?'low':'unk';
+      h+=`<div class="vcard sev-${scl}">
+        <div class="vtop">
+          <a class="vid" href="https://osv.dev/vulnerability/${encodeURIComponent(v.id)}" target="_blank" rel="noopener">${esc(v.id)}</a>
+          <span class="sevtag ${scl}">${v.severity.label}${v.severity.score!=null?' '+v.severity.score.toFixed(1):''}</span>
+          ${v.aliases.slice(0,3).map(a=>`<span class="cve">${esc(a)}</span>`).join('')}
+        </div>
+        <div class="vsum">${esc(v.summary)}</div>
+        <div class="vmeta">
+          ${v.ranges.length?`<span class="aff">affected: ${v.ranges.map(esc).join(' · ')}</span>`:''}
+          ${v.fixed.length?`<span>patched in: <b>${v.fixed.map(esc).join(', ')}</b></span>`:'<span>no fix listed</span>'}
+          ${v.published?`<span>${new Date(v.published).toISOString().slice(0,10)}</span>`:''}
+        </div>
+        ${v.references.length?`<div class="vrefs">${v.references.slice(0,4).map(u=>`<a href="${esc(u)}" target="_blank" rel="noopener">↗ ${esc(u.replace(/^https?:\/\//,'').slice(0,46))}</a>`).join('')}</div>`:''}
+      </div>`;
+    });
+    h+='</div>';
+  } else if(p.status==='done'){
+    h+=`<div class="dsec"><h4>vulnerabilities</h4><div style="font-size:12.5px;color:var(--clean);font-family:'IBM Plex Mono',monospace">✓ No known CVEs for version ${esc(p.resolvedVersion||'?')} in the OSV database.</div></div>`;
+  }
+
+  // scorecard
+  const scd=p.project&&p.project.scorecard;
+  if(scd&&typeof scd.overallScore==='number'){
+    const ov=scd.overallScore;
+    const ovc=ov>=8?'var(--clean)':ov>=6?'#9cd11f':ov>=4?'var(--med)':'var(--crit)';
+    const checks=(scd.checks||[]).slice().sort((a,b)=>(a.score)-(b.score));
+    h+=`<div class="dsec"><h4>openssf scorecard · supply-chain health</h4>
+      <div class="scoverall"><div class="num" style="color:${ovc}">${ov.toFixed(1)}<span style="font-size:14px;color:var(--txt-3)">/10</span></div>
+      <div class="meta">${checks.length} automated checks on the source repository<br>${esc(p.repo||'')}</div></div>
+      <div class="checks">`;
+    checks.forEach(c=>{
+      const s=c.score;
+      const col=s<0?'var(--txt-3)':s>=8?'var(--clean)':s>=5?'var(--med)':'var(--crit)';
+      h+=`<div class="chk">
+        <div class="cn"><span>${esc(c.name)}</span><span class="cs" style="color:${col}">${s<0?'n/a':s+'/10'}</span></div>
+        ${c.reason?`<div class="cr">${esc(c.reason)}</div>`:''}
+      </div>`;
+    });
+    h+='</div></div>';
+  } else if(p.repo){
+    h+=`<div class="dsec"><h4>openssf scorecard</h4><div style="font-size:12px;color:var(--txt-3);font-family:'IBM Plex Mono',monospace">No Scorecard data indexed for ${esc(p.repo)}.</div></div>`;
+  }
+
+  // license compliance
+  if(p.lic){
+    const lv=licenseVerdict(p.lic);
+    const tagStyle={
+      allowed:'background:rgba(51,211,153,.12);color:var(--clean)',
+      review:'background:rgba(255,210,63,.12);color:var(--med)',
+      flagged:'background:rgba(255,77,77,.13);color:var(--crit)'
+    }[lv.level];
+    const noticeCls=lv.level==='allowed'?'notice good':lv.level==='flagged'?'notice flag':'notice';
+    const icon=lv.level==='allowed'?'✓':'⚠';
+    h+=`<div class="dsec"><h4>license check</h4>
+      <div class="licrow">
+        <span class="tag" style="${tagStyle}">${esc(lv.short||'Unknown')}</span>
+        <span class="pol">${icon} ${esc(lv.title)}</span>
+        <span class="pol" style="opacity:.7">approved policy: ${esc(allowLic.value||'—')}</span>
+      </div>
+      <div class="${noticeCls}">${esc(lv.reason)}</div>
+    </div>`;
+  }
+
+  // metadata
+  if(p.meta&&p.meta.info){
+    const proj=p.project||{};
+    const mi=[
+      ['latest version',p.latest||'—'],
+      ['your version',(p.resolvedVersion||'—')+(p.versionAssumed?' (assumed)':p.pinnedVersion?' (pinned)':'')],
+      ['last release',timeAgo(p.lastReleaseDate)],
+      ['releases',p.releaseCount!=null?p.releaseCount:'—'],
+      ['requires python',p.requiresPython||'—'],
+    ];
+    if(proj.starsCount!=null) mi.push(['repo stars',Number(proj.starsCount).toLocaleString()]);
+    if(proj.openIssuesCount!=null) mi.push(['open issues',Number(proj.openIssuesCount).toLocaleString()]);
+    h+=`<div class="dsec"><h4>package metadata</h4>`;
+    if(p.summaryText) h+=`<div style="font-size:12.5px;color:var(--txt-2);margin-bottom:10px">${esc(p.summaryText)}</div>`;
+    if(p.yanked) h+=`<div class="notice" style="margin-bottom:10px">⚠ This release is YANKED on PyPI — it should not be used.</div>`;
+    h+=`<div class="meta-grid">${mi.map(([k,v])=>`<div class="mi"><div class="mk">${k}</div><div class="mv">${esc(v)}</div></div>`).join('')}</div></div>`;
+  }
+
+  // links
+  h+=`<div class="links">
+    <a class="snyk" href="https://security.snyk.io/package/pip/${encodeURIComponent(p.normName)}" target="_blank" rel="noopener">◆ Snyk advisory</a>
+    <a href="https://osv.dev/list?ecosystem=PyPI&q=${encodeURIComponent(p.name)}" target="_blank" rel="noopener">↗ OSV.dev</a>
+    <a href="https://pypi.org/project/${encodeURIComponent(p.name)}/" target="_blank" rel="noopener">↗ PyPI</a>
+    ${p.repo?`<a href="https://github.com/${esc(p.repo)}" target="_blank" rel="noopener">↗ GitHub</a>`:''}
+    ${p.repo?`<a href="https://deps.dev/pypi/${encodeURIComponent(p.normName)}" target="_blank" rel="noopener">↗ deps.dev</a>`:''}
+  </div>`;
+
+  h+='</div>';
+  return h;
+}
+
+function compare(a,b){
+  const mode=sortEl.value;
+  if(mode==='name') return a.name.localeCompare(b.name);
+  if(mode==='vulncount') return b.vulns.length-a.vulns.length;
+  if(mode==='health'){
+    const ah=a.health==null?999:a.health, bh=b.health==null?999:b.health;
+    return ah-bh;
+  }
+  // risk: vulnerable first, by max severity, then count, then low health
+  const av=a.vulns.length>0, bv=b.vulns.length>0;
+  if(av!==bv) return av?-1:1;
+  if(av){
+    if(b.maxRank!==a.maxRank) return b.maxRank-a.maxRank;
+    if(b.vulns.length!==a.vulns.length) return b.vulns.length-a.vulns.length;
+  }
+  return (a.health==null?999:a.health)-(b.health==null?999:b.health);
+}
+
+function passesFilter(p){
+  const q=searchEl.value.trim().toLowerCase();
+  if(q&&!p.name.toLowerCase().includes(q)) return false;
+  if(activeFilter==='all') return true;
+  if(activeFilter==='vuln') return p.vulns.length>0;
+  if(activeFilter==='license') return p.status==='done'&&!p.unparseable&&p.lic&&licenseVerdict(p.lic).level!=='allowed';
+  if(activeFilter==='clean') return p.status==='done'&&p.vulns.length===0&&!p.notFound&&!p.osvError&&!p.unparseable;
+  if(activeFilter==='issue') return p.unparseable||p.notFound||p.osvError||p.pypiError;
+  return true;
+}
+
+function renderList(){
+  const view=PKGS.filter(passesFilter).slice().sort(compare);
+  if(!view.length){
+    listEl.innerHTML=`<div class="empty" style="padding:34px"><div>No packages match this filter.</div></div>`;
+    return;
+  }
+  listEl.innerHTML=view.map((p)=>{
+    const i=PKGS.indexOf(p);
+    const open=expanded.has(p.normName||p.name);
+    const cls='pkg card'+(p.vulns.length>0?' vuln':'')+((p.unparseable||p.notFound||p.osvError)?' err':'')+(open?' open':'');
+    const verCls=p.versionAssumed?'ver assumed':'ver';
+    const verTxt=p.resolvedVersion?'@'+p.resolvedVersion:(p.specifier||'unpinned');
+    return `<div class="${cls}" data-i="${i}">
+      <div class="phead" data-toggle="${i}">
+        <div class="chev">▶</div>
+        <div class="pname">
+          <div class="nm">${esc(p.name)}<span class="${verCls}">${esc(verTxt)}</span>${p.versionAssumed?'<span style="font-size:9px;color:var(--low)">latest</span>':''}</div>
+          ${p.repo?`<div class="repo">${esc(p.repo)}</div>`:(p.specifier&&p.resolvedVersion?`<div class="repo">spec: ${esc(p.specifier)}</div>`:'')}
+        </div>
+        <div class="liccell">${licPill(p)}</div>
+        ${verdict(p)}
+        <div class="pills">${pills(p)}</div>
+        ${ring(p.health)}
+      </div>
+      ${open?detail(p,i):''}
+    </div>`;
+  }).join('');
+
+  listEl.querySelectorAll('.phead').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const p=PKGS[+el.dataset.toggle];
+      const key=p.normName||p.name;
+      if(expanded.has(key)) expanded.delete(key); else expanded.add(key);
+      renderList();
+    });
+  });
+}
+
+/* ---------- file intake ---------- */
+function ingest(text,filename){
+  RAW=text;
+  FILENAME=filename||'';
+  paste.value=text;
+  scanBtn.disabled=!text.trim();
+  if(text.trim()){
+    const {kind,entries}=buildEntries(text,FILENAME);
+    const label={requirements:'requirements file',pyproject:'pyproject.toml',lock:'lock file'}[kind];
+    const n=entries.filter(e=>!e.unparseable).length;
+    drop.querySelector('.big').innerHTML='<u>✓ '+esc(FILENAME||label)+' loaded</u> — '+
+      n+' package'+(n===1?'':'s')+' · detected '+label+' format';
+  }
+}
+function readFile(file){
+  const r=new FileReader();
+  r.onload=()=>ingest(r.result,file.name);
+  r.readAsText(file);
+}
+drop.addEventListener('click',()=>fileInput.click());
+fileInput.addEventListener('change',e=>{ if(e.target.files[0]) readFile(e.target.files[0]); });
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(f) readFile(f); });
+
+togglePaste.addEventListener('click',()=>{
+  paste.classList.toggle('hidden');
+  togglePaste.textContent=paste.classList.contains('hidden')?'⌨ paste instead':'⌨ hide paste box';
+});
+paste.addEventListener('input',()=>{ RAW=paste.value; FILENAME=''; scanBtn.disabled=!RAW.trim(); });
+loadExample.addEventListener('click',()=>{
+  paste.classList.remove('hidden');
+  togglePaste.textContent='⌨ hide paste box';
+  ingest(EXAMPLE);
+});
+scanBtn.addEventListener('click',()=>{ RAW=paste.value||RAW; if(RAW.trim()) runScan(); });
+
+searchEl.addEventListener('input',renderList);
+sortEl.addEventListener('change',renderList);
+// editing the license policy re-evaluates verdicts live, no re-scan needed
+allowLic.addEventListener('input',()=>{ if(PKGS.some(p=>p.status==='done')){ renderSummary(); renderList(); } });
+document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{
+  document.querySelectorAll('.chip').forEach(x=>x.classList.remove('active'));
+  c.classList.add('active'); activeFilter=c.dataset.f; renderList();
+}));
+
+exportBtn.addEventListener('click',()=>{
+  const report={
+    generated:new Date().toISOString(),
+    licensePolicy:allowLic.value,
+    summary:{
+      packages:PKGS.filter(p=>!p.unparseable).length,
+      vulnerable:PKGS.filter(p=>p.vulns.length>0).length,
+      totalVulnerabilities:PKGS.reduce((s,p)=>s+p.vulns.length,0),
+      licenseFlags:PKGS.filter(p=>p.status==='done'&&p.lic&&licenseVerdict(p.lic).level!=='allowed').length
+    },
+    packages:PKGS.map(p=>{
+      const lv=p.lic?licenseVerdict(p.lic):null;
+      return {
+        name:p.name,version:p.resolvedVersion||null,pinned:!!p.pinnedVersion,
+        health:p.health,latest:p.latest||null,yanked:!!p.yanked,
+        license:lv?{detected:lv.short,status:lv.level,assessment:lv.title,approved:lv.level==='allowed'}:null,
+        vulnerabilities:p.vulns.map(v=>({
+          id:v.id,severity:v.severity.label,cvss:v.severity.score,
+          aliases:v.aliases,fixedIn:v.fixed,summary:v.summary
+        }))
+      };
+    })
+  };
+  const blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='security-audit-report.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+</script>
+</body>
+</html>
