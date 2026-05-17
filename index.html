@@ -274,6 +274,13 @@ select.sortsel{
   border:1px solid rgba(255,210,63,.2);border-radius:8px;padding:9px 11px;font-family:'IBM Plex Mono',monospace}
 .notice.flag{color:var(--crit);background:rgba(255,77,77,.07);border-color:rgba(255,77,77,.22)}
 .notice.good{color:var(--clean);background:rgba(51,211,153,.07);border-color:rgba(51,211,153,.2)}
+/* large-scan confirmation */
+.capwarn{background:linear-gradient(180deg,var(--panel),var(--panel-2));
+  border:1px solid rgba(255,210,63,.28);border-radius:var(--radius);padding:22px 22px 20px}
+.capwarn-h{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;
+  color:var(--med);margin-bottom:10px}
+.capwarn p{font-size:13px;color:var(--txt-2);margin-bottom:9px;max-width:640px;line-height:1.6}
+.capwarn-btns{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
 .licrow{display:flex;align-items:center;gap:9px;margin-bottom:9px;flex-wrap:wrap}
 .licrow .tag{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;
   padding:3px 9px;border-radius:6px}
@@ -315,7 +322,7 @@ footer a{color:var(--txt-2)}
     </div>
     <div>
       <h1>dependency<span class="dim">·</span>security<span class="dim">·</span>audit</h1>
-      <p class="tag">Upload a <b>Python dependency file</b> and scan every package for known vulnerabilities, license compliance, and supply-chain health, live from OSV.dev, deps.dev OpenSSF Scorecard, and PyPI.</p>
+      <p class="tag">Upload a <b>Python or npm dependency file</b> and scan every package for known vulnerabilities, license compliance, and supply-chain health, live from OSV.dev, deps.dev OpenSSF Scorecard, PyPI, and the npm registry.</p>
     </div>
   </header>
 
@@ -324,7 +331,7 @@ footer a{color:var(--txt-2)}
     <div class="drop" id="drop">
       <div class="ico">📦</div>
       <div class="big">Drop a <u>dependency file</u> here, or click to browse</div>
-      <div class="sub">requirements.txt · pyproject.toml · poetry.lock · uv.lock</div>
+      <div class="sub">Python &amp; npm · requirements.txt · pyproject.toml · package.json · lockfiles</div>
     </div>
     <textarea id="paste" class="hidden" placeholder="# or paste your requirements here&#10;requests==2.31.0&#10;django&gt;=4.2"></textarea>
     <div class="policy">
@@ -374,12 +381,13 @@ footer a{color:var(--txt-2)}
   <footer>
     data sources — vulnerabilities: OSV.dev (aggregates GitHub Advisory DB, PySEC &amp; more) ·
     health: deps.dev OpenSSF Scorecard · licenses: PyPI SPDX expression / classifiers · metadata: PyPI JSON API<br>
-    formats — requirements*.txt (pip), pyproject.toml (PEP 621, PEP 735 groups, Poetry), poetry.lock, uv.lock · lock files give exact-version results<br>
+    formats — Python: requirements*.txt, pyproject.toml (PEP 621, PEP 735, Poetry), poetry.lock, uv.lock · npm: package.json, package-lock.json, yarn.lock<br>
+    npm lockfiles are scanned for direct dependencies only · lock files and pinned files give exact-version results<br>
     note — Snyk advisory pages can't be read from a browser (no CORS / token-gated API), so each package links out to its Snyk page directly. OSV draws from the same core advisory feeds.
   </footer>
 </div>
 
-<input type="file" id="fileInput" accept=".txt,.toml,.lock,text/plain" class="hidden">
+<input type="file" id="fileInput" accept=".txt,.toml,.lock,.json,text/plain,application/json" class="hidden">
 
 <script>
 "use strict";
@@ -439,7 +447,7 @@ function parseRequirements(text){
     let pinned=null;
     const eq=spec.match(/==\s*([A-Za-z0-9][A-Za-z0-9.\-+!]*)/);
     if(eq) pinned=eq[1].replace(/\.\*$/,'');
-    out.push({raw,name,normName:nn,extras,specifier:spec,pinnedVersion:pinned,status:'queued',vulns:[]});
+    out.push({raw,name,normName:nn,extras,specifier:spec,pinnedVersion:pinned,status:'queued',vulns:[],ecosystem:'PyPI'});
   }
   return out;
 }
@@ -539,7 +547,105 @@ function parsePyproject(text){
 
 function mkEntry(name,version){
   return {raw:name+(version?'=='+version:''),name,normName:normName(name),extras:'',
-    specifier:version?'=='+version:'',pinnedVersion:version||null,status:'queued',vulns:[]};
+    specifier:version?'=='+version:'',pinnedVersion:version||null,status:'queued',vulns:[],ecosystem:'PyPI'};
+}
+// registry-path & OSV-name helpers (scoped npm names need encoding for the URL path only)
+function npmPath(p){ return p.name.replace('/','%2F'); }
+function osvName(p){ return p.ecosystem==='npm'?p.name:p.normName; }
+
+/* ---------- npm / Node ecosystem ---------- */
+// normalise an npm version range to an exact pin only when it already is one
+function npmPin(spec){
+  if(!spec||typeof spec!=='string') return null;
+  const s=spec.trim();
+  // exact: "1.2.3"  ·  not exact: ^1.2  ~1.2  >=1  *  latest  workspace:  npm:  git url
+  if(/^\d+\.\d+\.\d+([-+][0-9A-Za-z.\-]+)?$/.test(s)) return s;
+  if(/^v\d+\.\d+\.\d+/.test(s)) return s.replace(/^v/,'');
+  return null;
+}
+function mkNpmEntry(name,version,opts){
+  opts=opts||{};
+  const pin=opts.exact?(version||null):npmPin(version);
+  const e={raw:name+(version?'@'+version:''),name,normName:name.toLowerCase(),extras:'',
+    specifier:version?'@'+version:'',pinnedVersion:pin,status:'queued',vulns:[],ecosystem:'npm'};
+  if(opts.dev) e.devDep=true;
+  return e;
+}
+// package.json — direct dependencies only (dependencies + devDependencies + optional + peer)
+function parsePackageJson(text){
+  let j;
+  try{ j=JSON.parse(text); }catch(e){ return {entries:[{raw:'package.json',name:'package.json',unparseable:true,note:'Invalid JSON — could not parse package.json'}],meta:{}}; }
+  const out=[];
+  const add=(obj,dev)=>{
+    if(!obj||typeof obj!=='object') return;
+    for(const [name,spec] of Object.entries(obj)){
+      if(typeof spec!=='string'){ continue; }
+      if(/^(file:|link:|workspace:|portal:)/i.test(spec)){
+        out.push({raw:name+': '+spec,name,unparseable:true,note:'Local / workspace dependency — not on the registry'});
+        continue;
+      }
+      out.push(mkNpmEntry(name,spec,{dev}));
+    }
+  };
+  add(j.dependencies,false);
+  add(j.devDependencies,true);
+  add(j.optionalDependencies,false);
+  add(j.peerDependencies,false);
+  return {entries:out,meta:{name:j.name,scanned:'direct dependencies'}};
+}
+// package-lock.json — npm lockfile (v1 "dependencies" tree, v2/v3 "packages" map)
+function parsePackageLock(text){
+  let j;
+  try{ j=JSON.parse(text); }catch(e){ return {entries:[{raw:'package-lock.json',name:'package-lock.json',unparseable:true,note:'Invalid JSON — could not parse package-lock.json'}],note:''}; }
+  // collect the set of DIRECT dependency names from the root package
+  const direct=new Set();
+  const root=j.packages&&j.packages[''];
+  const rootSrc=root||j;
+  ['dependencies','devDependencies','optionalDependencies','peerDependencies'].forEach(k=>{
+    if(rootSrc[k]) Object.keys(rootSrc[k]).forEach(n=>direct.add(n));
+  });
+  const out=[]; const seen=new Set();
+  let total=0;
+  if(j.packages){                       // lockfile v2 / v3
+    for(const [path,info] of Object.entries(j.packages)){
+      if(path==='') continue;
+      const name=path.replace(/^.*node_modules\//,'');
+      if(!name||!info||info.link) continue;
+      total++;
+      if(!direct.has(name)||seen.has(name)) continue;
+      seen.add(name);
+      out.push(mkNpmEntry(name,info.version,{exact:true,dev:!!info.dev}));
+    }
+  } else if(j.dependencies){             // lockfile v1
+    for(const [name,info] of Object.entries(j.dependencies)){
+      total++;
+      if(!direct.has(name)||seen.has(name)||!info) continue;
+      seen.add(name);
+      out.push(mkNpmEntry(name,info.version,{exact:true,dev:!!info.dev}));
+    }
+  }
+  return {entries:out,total,direct:out.length};
+}
+// yarn.lock — classic (v1) and berry (v2+) both use "spec:\n  version: x"
+function parseYarnLock(text){
+  const out=[]; const seen=new Set();
+  const blocks=text.split(/\r?\n(?=\S)/);   // each entry starts at column 0
+  let total=0;
+  for(const block of blocks){
+    const head=block.split(/\r?\n/)[0];
+    if(!head||head.startsWith('#')||head.startsWith('__metadata')) continue;
+    const vm=block.match(/\n\s+version:?\s+"?([0-9][0-9A-Za-z.\-+]*)"?/);
+    if(!vm) continue;
+    total++;
+    // header is a comma-separated list of "name@range" specs; take the name of the first
+    const first=head.split(',')[0].trim().replace(/^"/,'').replace(/:$/,'').replace(/"$/,'');
+    const at=first.lastIndexOf('@');
+    const name=at>0?first.slice(0,at):first;
+    if(!name||seen.has(name)) continue;
+    seen.add(name);
+    out.push(mkNpmEntry(name,vm[1],{exact:true}));
+  }
+  return {entries:out,total,direct:out.length,fullTree:true};
 }
 function dedupeEntries(list){
   const seen=new Set(),out=[];
@@ -552,16 +658,36 @@ function dedupeEntries(list){
 }
 // pick a parser by content (reliable) then filename
 function detectKind(text,filename){
+  const fn=(filename||'').toLowerCase();
+  // npm — by filename first (these names are canonical), then by content shape
+  if(/(^|\/)package-lock\.json$/.test(fn)||/(^|\/)npm-shrinkwrap\.json$/.test(fn)) return 'npm-lock';
+  if(/(^|\/)yarn\.lock$/.test(fn)) return 'yarn-lock';
+  if(/(^|\/)package\.json$/.test(fn)) return 'package-json';
+  if(/^#\s*yarn lockfile|^__metadata:/m.test(text)) return 'yarn-lock';
+  // python
   if(/\[\[\s*package\s*\]\]/.test(text)) return 'lock';
   if(/^[ \t]*\[\s*(project|build-system|tool|dependency-groups)\b/m.test(text)) return 'pyproject';
-  const fn=(filename||'').toLowerCase();
   if(fn.endsWith('.lock')) return 'lock';
   if(fn.endsWith('.toml')) return 'pyproject';
+  // JSON content: distinguish package-lock (has lockfileVersion / packages) from package.json
+  const t=text.trim();
+  if(t.startsWith('{')){
+    if(/"lockfileVersion"\s*:/.test(text)||/"packages"\s*:\s*\{/.test(text)) return 'npm-lock';
+    if(/"dependencies"\s*:|"devDependencies"\s*:|"name"\s*:/.test(text)) return 'package-json';
+  }
   return 'requirements';
 }
+const KIND_META={
+  requirements:{label:'requirements file',eco:'PyPI'},
+  pyproject:{label:'pyproject.toml',eco:'PyPI'},
+  lock:{label:'lock file',eco:'PyPI'},
+  'package-json':{label:'package.json',eco:'npm'},
+  'npm-lock':{label:'package-lock.json',eco:'npm'},
+  'yarn-lock':{label:'yarn.lock',eco:'npm'}
+};
 function buildEntries(text,filename){
   const kind=detectKind(text,filename);
-  let entries;
+  let entries, info={};
   if(kind==='lock'){
     entries=dedupeEntries(parseLockFile(text).map(p=>mkEntry(p.name,p.version)));
   } else if(kind==='pyproject'){
@@ -569,10 +695,18 @@ function buildEntries(text,filename){
     entries=parseRequirements(reqStrings.join('\n'));
     poetryDeps.forEach(d=>entries.push(mkEntry(d.name,d.version)));
     entries=dedupeEntries(entries);
+  } else if(kind==='package-json'){
+    const r=parsePackageJson(text); entries=dedupeEntries(r.entries); info=r.meta;
+  } else if(kind==='npm-lock'){
+    const r=parsePackageLock(text); entries=dedupeEntries(r.entries);
+    info={scanned:'direct dependencies',total:r.total,direct:r.direct};
+  } else if(kind==='yarn-lock'){
+    const r=parseYarnLock(text); entries=dedupeEntries(r.entries);
+    info={scanned:'full resolved tree',total:r.total,direct:r.direct,fullTree:true};
   } else {
     entries=parseRequirements(text);
   }
-  return {kind,entries};
+  return {kind,entries,info,eco:KIND_META[kind].eco};
 }
 
 /* ---------- CVSS 3.x base score ---------- */
@@ -650,6 +784,20 @@ function ghRepo(meta){
   const pu=meta.info&&meta.info.project_urls;
   if(pu) Object.values(pu).forEach(u=>u&&cands.push(u));
   if(meta.info&&meta.info.home_page) cands.push(meta.info.home_page);
+  for(const u of cands){
+    const m=String(u).match(/github\.com[/:]+([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)/i);
+    if(m) return m[1]+'/'+m[2].replace(/\.git$/i,'');
+  }
+  return null;
+}
+// extract a github org/repo from an npm registry document
+function ghRepoNpm(doc){
+  if(!doc) return null;
+  const cands=[];
+  const r=doc.repository;
+  if(r){ if(typeof r==='string') cands.push(r); else if(r.url) cands.push(r.url); }
+  if(doc.homepage) cands.push(doc.homepage);
+  if(doc.bugs&&doc.bugs.url) cands.push(doc.bugs.url);
   for(const u of cands){
     const m=String(u).match(/github\.com[/:]+([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)/i);
     if(m) return m[1]+'/'+m[2].replace(/\.git$/i,'');
@@ -771,6 +919,26 @@ function detectLicense(meta){
   return {ok:true,tokens:uniq,op:uniq.length>1?'or':'single',raw:lic,
     display:uniq.map(t=>t.id).join(' / ')};
 }
+// npm registry doc → same license verdict shape as detectLicense
+function detectLicenseNpm(doc){
+  if(!doc) return {ok:false,tokens:[],op:'single',display:'Unknown',raw:''};
+  let lic=doc.license;
+  // deprecated forms: {type:"MIT"} or [{type:"MIT"},{type:"Apache-2.0"}]
+  if(lic&&typeof lic==='object'){
+    if(Array.isArray(lic)) lic=lic.map(x=>x&&x.type).filter(Boolean).join(' OR ');
+    else lic=lic.type||'';
+  }
+  if(!lic&&doc.licenses){
+    const ls=Array.isArray(doc.licenses)?doc.licenses:[doc.licenses];
+    lic=ls.map(x=>typeof x==='string'?x:(x&&x.type)).filter(Boolean).join(' OR ');
+  }
+  lic=(lic||'').trim();
+  if(!lic) return {ok:false,tokens:[],op:'single',display:'Unknown',raw:''};
+  if(/\b(OR|AND|WITH)\b/i.test(lic)||/^\(/.test(lic)) return parseSpdxExpr(lic);
+  const r=lic.length>140?detectFromText(lic):resolveToken(lic);
+  if(r) return {ok:true,tokens:[r],op:'single',raw:lic,display:r.id};
+  return {ok:false,tokens:[],op:'single',display:lic.slice(0,46),raw:lic};
+}
 function allowSet(){
   const s=new Set();
   (allowLic.value||'').split(',').forEach(part=>{
@@ -825,6 +993,7 @@ function computeHealth(p){
   const d=daysSince(p.lastReleaseDate);
   if(d!=null){ if(d>1095) score-=16; else if(d>540) score-=9; else if(d>365) score-=4; }
   if(p.yanked) score-=30;
+  if(p.deprecated) score-=22;
   if(p.pinnedVersion&&p.latest&&p.pinnedVersion!==p.latest) score-=3;
   const sc=p.project&&p.project.scorecard&&typeof p.project.scorecard.overallScore==='number'
     ? p.project.scorecard.overallScore : null;
@@ -841,25 +1010,19 @@ function grade(h){
 }
 
 /* ---------- scanning ---------- */
-async function scanOne(p){
-  if(p.unparseable){ p.status='skipped'; return; }
-  p.status='scanning'; renderList();
-
-  // 1. PyPI metadata
+// PyPI metadata → fills p.meta, p.latest, p.license/p.lic, p.lastReleaseDate, repo
+async function fetchPyPI(p){
   let meta=null;
   try{
     const r=await fetch('https://pypi.org/pypi/'+encodeURIComponent(p.normName)+'/json');
     if(r.ok) meta=await r.json();
     else if(r.status===404) p.notFound=true;
-    else p.pypiError=true;
-  }catch(e){ p.pypiError=true; }
+    else p.metaError=true;
+  }catch(e){ p.metaError=true; }
   p.meta=meta;
-
   if(meta&&meta.info){
     p.latest=meta.info.version||null;
     p.summaryText=meta.info.summary||'';
-    p.license=meta.info.license_expression||meta.info.license||
-      (meta.info.classifiers||[]).filter(c=>c.startsWith('License ::')).map(c=>c.split('::').pop().trim())[0]||'';
     p.requiresPython=meta.info.requires_python||'';
     p.yanked=!!meta.info.yanked;
     p.releaseCount=Object.keys(meta.releases||{}).length;
@@ -872,19 +1035,69 @@ async function scanOne(p){
     const files=meta.releases[resolved]||meta.releases[p.latest]||[];
     if(files.length) p.lastReleaseDate=files[files.length-1].upload_time_iso_8601||files[0].upload_time_iso_8601;
   }
-
-  // 2. OSV vulnerabilities
+  p.repo=ghRepo(meta);
+}
+// npm registry metadata. two calls: /{pkg} for time+latest, /{pkg}/{version} for the resolved doc
+async function fetchNpm(p){
+  let root=null;
   try{
-    const body={package:{name:p.normName,ecosystem:'PyPI'}};
-    if(resolved) body.version=resolved;
+    const r=await fetch('https://registry.npmjs.org/'+npmPath(p));
+    if(r.ok) root=await r.json();
+    else if(r.status===404) p.notFound=true;
+    else p.metaError=true;
+  }catch(e){ p.metaError=true; }
+  if(p.notFound||p.metaError||!root){ p.lic=detectLicenseNpm(null); return; }
+  p.latest=(root['dist-tags']&&root['dist-tags'].latest)||null;
+  p.releaseCount=root.versions?Object.keys(root.versions).length:null;
+  const resolved=p.pinnedVersion||p.latest||null;
+  p.resolvedVersion=resolved;
+  p.versionAssumed=!p.pinnedVersion&&!!resolved;
+  const times=root.time||{};
+  if(resolved&&times[resolved]) p.lastReleaseDate=times[resolved];
+  else if(times.modified) p.lastReleaseDate=times.modified;
+  // the version-specific document carries the most accurate license + repo + deprecation
+  let doc=(root.versions&&resolved&&root.versions[resolved])||null;
+  if(doc&&doc.deprecated) p.deprecated=typeof doc.deprecated==='string'?doc.deprecated:true;
+  if(!doc){
+    doc={name:root.name,description:root.description,license:root.license,
+      repository:root.repository,homepage:root.homepage,bugs:root.bugs};
+  }
+  p.summaryText=doc.description||root.description||'';
+  p.meta={info:doc};                 // keep a shape for the metadata panel
+  p.lic=detectLicenseNpm(doc);
+  p.repo=ghRepoNpm(doc);
+}
+// OSV.dev — ecosystem-agnostic, just needs the right ecosystem string
+async function fetchOSV(p){
+  try{
+    const body={package:{name:osvName(p),ecosystem:p.ecosystem}};
+    if(p.resolvedVersion) body.version=p.resolvedVersion;
     const r=await fetch('https://api.osv.dev/v1/query',{
       method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
     });
-    if(r.ok){
-      const d=await r.json();
-      p.vulns=(d.vulns||[]).map(processVuln);
-    } else p.osvError=true;
+    if(r.ok){ const d=await r.json(); p.vulns=(d.vulns||[]).map(processVuln); }
+    else p.osvError=true;
   }catch(e){ p.osvError=true; }
+}
+// deps.dev OpenSSF Scorecard — keyed on the source repo
+async function fetchScorecard(p){
+  if(!p.repo) return;
+  try{
+    const r=await fetch('https://api.deps.dev/v3/projects/'+encodeURIComponent('github.com/'+p.repo));
+    if(r.ok) p.project=await r.json();
+  }catch(e){ /* optional */ }
+}
+
+async function scanOne(p){
+  if(p.unparseable){ p.status='skipped'; return; }
+  p.status='scanning'; renderList();
+
+  // 1. ecosystem metadata
+  if(p.ecosystem==='npm') await fetchNpm(p);
+  else await fetchPyPI(p);
+
+  // 2. vulnerabilities (shared OSV pipeline)
+  if(!p.notFound) await fetchOSV(p);
 
   // tally
   const counts={Critical:0,High:0,Medium:0,Low:0,Unknown:0};
@@ -894,28 +1107,47 @@ async function scanOne(p){
   p.counts=counts; p.maxRank=maxRank;
   p.vulns.sort((a,b)=>(SEV_RANK[b.severity.label]||0)-(SEV_RANK[a.severity.label]||0));
 
-  // 3. deps.dev OpenSSF Scorecard
-  const repo=ghRepo(meta);
-  p.repo=repo;
-  if(repo){
-    try{
-      const r=await fetch('https://api.deps.dev/v3/projects/'+encodeURIComponent('github.com/'+repo));
-      if(r.ok) p.project=await r.json();
-    }catch(e){ /* optional */ }
-  }
+  // 3. supply-chain health (shared)
+  await fetchScorecard(p);
 
   p.health=computeHealth(p);
   p.status='done';
 }
 
+/* ---------- scan-size guard ---------- */
+// live API calls per package are not free; very large dependency sets (notably a
+// full yarn.lock) are capped unless the user opts in to the whole set.
+const SCAN_CAP=150;
+let scanCapOverride=false;
+
 async function runScan(){
-  PKGS=buildEntries(RAW,FILENAME).entries;
+  const built=buildEntries(RAW,FILENAME);
+  PKGS=built.entries;
   if(!PKGS.length){
     emptyState.classList.remove('hidden');
     emptyState.innerHTML='<div class="e-ico">⚠</div><div>No packages found in that file.</div>';
     results.classList.add('hidden');
     return;
   }
+
+  const auditableAll=PKGS.filter(p=>!p.unparseable);
+  // size guard — confirm before firing a very large number of live API lookups
+  if(auditableAll.length>SCAN_CAP&&!scanCapOverride){
+    showScanCapPrompt(auditableAll.length,built);
+    return;
+  }
+  // when capped, audit the first SCAN_CAP and mark the remainder as skipped
+  if(auditableAll.length>SCAN_CAP&&scanCapOverride==='cap'){
+    let kept=0;
+    PKGS.forEach(p=>{
+      if(p.unparseable) return;
+      if(kept<SCAN_CAP){ kept++; }
+      else { p.unparseable=true; p.cappedOut=true;
+        p.note='Skipped to keep the scan fast — beyond the first '+SCAN_CAP+' packages. Re-run with "scan all" to include it.'; }
+    });
+  }
+  scanCapOverride=false;
+
   expanded.clear();
   emptyState.classList.add('hidden');
   results.classList.remove('hidden');
@@ -948,6 +1180,32 @@ async function runScan(){
   setTimeout(()=>progress.classList.remove('on'),900);
   scanBtn.disabled=false;
   renderSummary(); renderList();
+}
+
+// inline confirmation shown when a scan would exceed SCAN_CAP packages
+function showScanCapPrompt(count,built){
+  emptyState.classList.add('hidden');
+  results.classList.remove('hidden');
+  progress.classList.remove('on');
+  summaryEl.innerHTML='';
+  const yarnNote=built.info&&built.info.fullTree
+    ? ' A yarn.lock lists the full resolved tree (direct and transitive), so this is expected.'
+    : '';
+  listEl.innerHTML=`
+    <div class="capwarn">
+      <div class="capwarn-h">⚠ Large dependency set — ${count} packages</div>
+      <p>Scanning runs a few live API lookups per package. Auditing all ${count}
+      will be slow and puts noticeable load on the public OSV, deps.dev, and registry
+      APIs.${yarnNote}</p>
+      <p>Recommended: scan the first ${SCAN_CAP} packages. You can still scan everything
+      if you need the full picture.</p>
+      <div class="capwarn-btns">
+        <button class="btn btn-primary" id="capFirst">Scan first ${SCAN_CAP}</button>
+        <button class="btn btn-ghost" id="capAll">Scan all ${count} (slow)</button>
+      </div>
+    </div>`;
+  $('capFirst').addEventListener('click',()=>{ scanCapOverride='cap'; runScan(); });
+  $('capAll').addEventListener('click',()=>{ scanCapOverride='all'; runScan(); });
 }
 
 /* ---------- rendering ---------- */
@@ -1003,7 +1261,7 @@ function licPill(p){
 }
 function pills(p){
   if(p.status!=='done') return '';
-  if(p.notFound) return '<span class="pill u">not on pypi</span>';
+  if(p.notFound) return '<span class="pill u">'+(p.ecosystem==='npm'?'not on npm':'not on pypi')+'</span>';
   if(p.osvError) return '<span class="pill m">vuln data error</span>';
   const c=p.counts;
   if(!c||p.vulns.length===0) return '<span class="pill u" style="color:var(--clean);border-color:rgba(51,211,153,.3);background:rgba(51,211,153,.08)">no known cves</span>';
@@ -1033,7 +1291,7 @@ function detail(p,idx){
   if(p.osvError){
     h+=`<div class="dsec"><div class="notice">Vulnerability lookup failed (OSV.dev unreachable). The browser may have blocked the request — retry the scan.</div></div>`;
   } else if(p.notFound){
-    h+=`<div class="dsec"><div class="notice">Package not found on PyPI. It may be private, internal, renamed, or misspelled. No public vulnerability data available.</div></div>`;
+    h+=`<div class="dsec"><div class="notice">Package not found on ${p.ecosystem==='npm'?'the npm registry':'PyPI'}. It may be private, internal, renamed, or misspelled. No public vulnerability data available.</div></div>`;
   } else if(p.vulns.length){
     h+=`<div class="dsec"><h4>vulnerabilities · ${p.vulns.length}</h4>`;
     p.vulns.forEach(v=>{
@@ -1105,29 +1363,42 @@ function detail(p,idx){
   // metadata
   if(p.meta&&p.meta.info){
     const proj=p.project||{};
+    const isNpm=p.ecosystem==='npm';
     const mi=[
       ['latest version',p.latest||'—'],
       ['your version',(p.resolvedVersion||'—')+(p.versionAssumed?' (assumed)':p.pinnedVersion?' (pinned)':'')],
       ['last release',timeAgo(p.lastReleaseDate)],
-      ['releases',p.releaseCount!=null?p.releaseCount:'—'],
-      ['requires python',p.requiresPython||'—'],
+      [isNpm?'published versions':'releases',p.releaseCount!=null?p.releaseCount:'—'],
     ];
+    if(isNpm) mi.push(['dependency type',p.devDep?'devDependency':'dependency']);
+    else mi.push(['requires python',p.requiresPython||'—']);
     if(proj.starsCount!=null) mi.push(['repo stars',Number(proj.starsCount).toLocaleString()]);
     if(proj.openIssuesCount!=null) mi.push(['open issues',Number(proj.openIssuesCount).toLocaleString()]);
     h+=`<div class="dsec"><h4>package metadata</h4>`;
     if(p.summaryText) h+=`<div style="font-size:12.5px;color:var(--txt-2);margin-bottom:10px">${esc(p.summaryText)}</div>`;
-    if(p.yanked) h+=`<div class="notice" style="margin-bottom:10px">⚠ This release is YANKED on PyPI — it should not be used.</div>`;
+    if(p.yanked) h+=`<div class="notice flag" style="margin-bottom:10px">⚠ This release is YANKED on PyPI — it should not be used.</div>`;
+    if(p.deprecated) h+=`<div class="notice flag" style="margin-bottom:10px">⚠ This package is DEPRECATED on npm${typeof p.deprecated==='string'?' — '+esc(p.deprecated):'.'}</div>`;
     h+=`<div class="meta-grid">${mi.map(([k,v])=>`<div class="mi"><div class="mk">${k}</div><div class="mv">${esc(v)}</div></div>`).join('')}</div></div>`;
   }
 
   // links
-  h+=`<div class="links">
-    <a class="snyk" href="https://security.snyk.io/package/pip/${encodeURIComponent(p.normName)}" target="_blank" rel="noopener">◆ Snyk advisory</a>
-    <a href="https://osv.dev/list?ecosystem=PyPI&q=${encodeURIComponent(p.name)}" target="_blank" rel="noopener">↗ OSV.dev</a>
-    <a href="https://pypi.org/project/${encodeURIComponent(p.name)}/" target="_blank" rel="noopener">↗ PyPI</a>
-    ${p.repo?`<a href="https://github.com/${esc(p.repo)}" target="_blank" rel="noopener">↗ GitHub</a>`:''}
-    ${p.repo?`<a href="https://deps.dev/pypi/${encodeURIComponent(p.normName)}" target="_blank" rel="noopener">↗ deps.dev</a>`:''}
-  </div>`;
+  if(p.ecosystem==='npm'){
+    h+=`<div class="links">
+      <a class="snyk" href="https://security.snyk.io/package/npm/${encodeURIComponent(p.name)}" target="_blank" rel="noopener">◆ Snyk advisory</a>
+      <a href="https://osv.dev/list?ecosystem=npm&q=${encodeURIComponent(p.name)}" target="_blank" rel="noopener">↗ OSV.dev</a>
+      <a href="https://www.npmjs.com/package/${p.name.replace('/','%2F')}" target="_blank" rel="noopener">↗ npm</a>
+      ${p.repo?`<a href="https://github.com/${esc(p.repo)}" target="_blank" rel="noopener">↗ GitHub</a>`:''}
+      <a href="https://deps.dev/npm/${p.name.replace('/','%2F')}" target="_blank" rel="noopener">↗ deps.dev</a>
+    </div>`;
+  } else {
+    h+=`<div class="links">
+      <a class="snyk" href="https://security.snyk.io/package/pip/${encodeURIComponent(p.normName)}" target="_blank" rel="noopener">◆ Snyk advisory</a>
+      <a href="https://osv.dev/list?ecosystem=PyPI&q=${encodeURIComponent(p.name)}" target="_blank" rel="noopener">↗ OSV.dev</a>
+      <a href="https://pypi.org/project/${encodeURIComponent(p.name)}/" target="_blank" rel="noopener">↗ PyPI</a>
+      ${p.repo?`<a href="https://github.com/${esc(p.repo)}" target="_blank" rel="noopener">↗ GitHub</a>`:''}
+      ${p.repo?`<a href="https://deps.dev/pypi/${encodeURIComponent(p.normName)}" target="_blank" rel="noopener">↗ deps.dev</a>`:''}
+    </div>`;
+  }
 
   h+='</div>';
   return h;
@@ -1158,7 +1429,7 @@ function passesFilter(p){
   if(activeFilter==='vuln') return p.vulns.length>0;
   if(activeFilter==='license') return p.status==='done'&&!p.unparseable&&p.lic&&licenseVerdict(p.lic).level!=='allowed';
   if(activeFilter==='clean') return p.status==='done'&&p.vulns.length===0&&!p.notFound&&!p.osvError&&!p.unparseable;
-  if(activeFilter==='issue') return p.unparseable||p.notFound||p.osvError||p.pypiError;
+  if(activeFilter==='issue') return p.unparseable||p.notFound||p.osvError||p.metaError;
   return true;
 }
 
@@ -1207,11 +1478,16 @@ function ingest(text,filename){
   paste.value=text;
   scanBtn.disabled=!text.trim();
   if(text.trim()){
-    const {kind,entries}=buildEntries(text,FILENAME);
-    const label={requirements:'requirements file',pyproject:'pyproject.toml',lock:'lock file'}[kind];
+    const {kind,entries,info,eco}=buildEntries(text,FILENAME);
+    const label=KIND_META[kind].label;
     const n=entries.filter(e=>!e.unparseable).length;
+    let extra='';
+    if(info&&info.fullTree&&n>0)
+      extra=' · full resolved tree (yarn.lock has no direct/transitive distinction)';
+    else if(info&&info.total&&info.total>info.direct)
+      extra=' · '+info.direct+' direct of '+info.total+' locked (transitive skipped)';
     drop.querySelector('.big').innerHTML='<u>✓ '+esc(FILENAME||label)+' loaded</u> — '+
-      n+' package'+(n===1?'':'s')+' · detected '+label+' format';
+      n+' '+eco+' package'+(n===1?'':'s')+' · detected '+esc(label)+extra;
   }
 }
 function readFile(file){
@@ -1230,10 +1506,31 @@ togglePaste.addEventListener('click',()=>{
   togglePaste.textContent=paste.classList.contains('hidden')?'⌨ paste instead':'⌨ hide paste box';
 });
 paste.addEventListener('input',()=>{ RAW=paste.value; FILENAME=''; scanBtn.disabled=!RAW.trim(); });
+const EXAMPLE_NPM = `{
+  "name": "example-app",
+  "version": "1.0.0",
+  "dependencies": {
+    "lodash": "4.17.11",
+    "axios": "0.21.0",
+    "express": "4.17.1",
+    "react": "^18.2.0",
+    "minimist": "1.2.0"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "webpack": "5.0.0"
+  }
+}`;
+let exampleToggle=0;
 loadExample.addEventListener('click',()=>{
   paste.classList.remove('hidden');
   togglePaste.textContent='⌨ hide paste box';
-  ingest(EXAMPLE);
+  const ex=exampleToggle%2===0
+    ? {text:EXAMPLE,fn:'requirements.txt'}
+    : {text:EXAMPLE_NPM,fn:'package.json'};
+  exampleToggle++;
+  loadExample.textContent=exampleToggle%2===0?'↳ load example':'↳ load npm example';
+  ingest(ex.text,ex.fn);
 });
 scanBtn.addEventListener('click',()=>{ RAW=paste.value||RAW; if(RAW.trim()) runScan(); });
 
@@ -1259,8 +1556,10 @@ exportBtn.addEventListener('click',()=>{
     packages:PKGS.map(p=>{
       const lv=p.lic?licenseVerdict(p.lic):null;
       return {
-        name:p.name,version:p.resolvedVersion||null,pinned:!!p.pinnedVersion,
-        health:p.health,latest:p.latest||null,yanked:!!p.yanked,
+        name:p.name,ecosystem:p.ecosystem||'PyPI',
+        version:p.resolvedVersion||null,pinned:!!p.pinnedVersion,
+        health:p.health,latest:p.latest||null,
+        yanked:!!p.yanked,deprecated:p.deprecated||false,
         license:lv?{detected:lv.short,status:lv.level,assessment:lv.title,approved:lv.level==='allowed'}:null,
         vulnerabilities:p.vulns.map(v=>({
           id:v.id,severity:v.severity.label,cvss:v.severity.score,
