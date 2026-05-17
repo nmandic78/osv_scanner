@@ -358,7 +358,7 @@ footer a{color:var(--txt-2)}
     <div class="controls">
       <input type="text" class="search" id="search" placeholder="filter packages…">
       <button class="chip active" data-f="all">all</button>
-      <button class="chip" data-f="vuln">vulnerable</button>
+      <button class="chip" data-f="vuln">flagged</button>
       <button class="chip" data-f="license">license ⚠</button>
       <button class="chip" data-f="clean">clean</button>
       <button class="chip" data-f="issue">errors</button>
@@ -987,6 +987,8 @@ function licenseVerdict(det){
 
 function computeHealth(p){
   if(p.unparseable||p.notFound) return null;
+  // a quarantined / frozen project is a definite problem, not an unknown — score it F
+  if(p.pypiStatus) return 0;
   let score=100;
   const c=p.counts||{Critical:0,High:0,Medium:0,Low:0,Unknown:0};
   score-=c.Critical*45; score-=c.High*25; score-=c.Medium*9; score-=c.Low*3; score-=c.Unknown*6;
@@ -1019,6 +1021,25 @@ async function fetchPyPI(p){
     else if(r.status===404) p.notFound=true;
     else p.metaError=true;
   }catch(e){ p.metaError=true; }
+  // a 404 on the JSON API does not always mean the name is unknown — PyPI also
+  // 404s here for quarantined projects. cross-check the Simple API, which still
+  // answers for quarantined / inactive names and reports their status.
+  if(p.notFound){
+    try{
+      const sr=await fetch('https://pypi.org/simple/'+encodeURIComponent(p.normName)+'/',
+        {headers:{'Accept':'application/vnd.pypi.simple.v1+json'}});
+      if(sr.ok){
+        const sd=await sr.json();
+        const status=sd&&sd['project-status']&&sd['project-status'].status;
+        if(status&&status!=='active'){
+          // the name is real and registered, just frozen by PyPI
+          p.notFound=false;
+          p.pypiStatus=status;        // e.g. "quarantined"
+          p.metaUnavailable=true;     // no installable metadata to work with
+        }
+      }
+    }catch(e){ /* fallback is best-effort */ }
+  }
   p.meta=meta;
   if(meta&&meta.info){
     p.latest=meta.info.version||null;
@@ -1096,8 +1117,11 @@ async function scanOne(p){
   if(p.ecosystem==='npm') await fetchNpm(p);
   else await fetchPyPI(p);
 
-  // 2. vulnerabilities (shared OSV pipeline)
-  if(!p.notFound) await fetchOSV(p);
+  // 2. vulnerabilities — OSV resolves package names independently of the
+  // registry, so query it even when registry metadata was unavailable. only a
+  // genuinely unknown name (not a quarantined / metadata-less one) is skipped,
+  // and even then OSV is cheap enough to try.
+  await fetchOSV(p);
 
   // tally
   const counts={Critical:0,High:0,Medium:0,Low:0,Unknown:0};
@@ -1211,17 +1235,23 @@ function showScanCapPrompt(count,built){
 /* ---------- rendering ---------- */
 function renderSummary(){
   const done=PKGS.filter(p=>p.status==='done');
-  const vulnPkgs=done.filter(p=>p.vulns.length>0);
+  const quarantined=done.filter(p=>p.pypiStatus);
+  // "flagged" = has CVEs OR is quarantined/frozen by the registry
+  const flaggedPkgs=done.filter(p=>p.vulns.length>0||p.pypiStatus);
   const totalVulns=done.reduce((s,p)=>s+p.vulns.length,0);
   const critHigh=done.reduce((s,p)=>s+(p.counts?p.counts.Critical+p.counts.High:0),0);
   const healths=done.map(p=>p.health).filter(h=>h!=null);
   const avg=healths.length?Math.round(healths.reduce((a,b)=>a+b,0)/healths.length):null;
-  const licV=done.map(p=>licenseVerdict(p.lic));
+  // license tally ignores packages with no usable metadata (not found / quarantined)
+  const licV=done.filter(p=>!p.notFound&&!p.pypiStatus).map(p=>licenseVerdict(p.lic));
   const licWarn=licV.filter(v=>v.level!=='allowed').length;
   const licFlag=licV.filter(v=>v.level==='flagged').length;
+  const flagNote=quarantined.length
+    ? (flaggedPkgs.length-quarantined.length)+' vuln · '+quarantined.length+' quarantined'
+    : (flaggedPkgs.length?'need attention':'none found');
   const cards=[
     {k:'packages',v:PKGS.filter(p=>!p.unparseable).length,cls:''},
-    {k:'vulnerable',v:vulnPkgs.length,cls:vulnPkgs.length?'crit':'ok',note:vulnPkgs.length?'need attention':'none found'},
+    {k:'flagged',v:flaggedPkgs.length,cls:flaggedPkgs.length?'crit':'ok',note:flagNote},
     {k:'total CVEs',v:totalVulns,cls:totalVulns?'crit':'ok'},
     {k:'critical + high',v:critHigh,cls:critHigh?'crit':'ok'},
     {k:'license flags',v:licWarn,cls:licFlag?'crit':(licWarn?'':'ok'),
@@ -1261,6 +1291,7 @@ function licPill(p){
 }
 function pills(p){
   if(p.status!=='done') return '';
+  if(p.pypiStatus) return '<span class="pill c">'+esc(p.pypiStatus)+' on pypi</span>';
   if(p.notFound) return '<span class="pill u">'+(p.ecosystem==='npm'?'not on npm':'not on pypi')+'</span>';
   if(p.osvError) return '<span class="pill m">vuln data error</span>';
   const c=p.counts;
@@ -1277,6 +1308,7 @@ function pills(p){
 function verdict(p){
   if(p.unparseable) return '<span class="verdict unk">SKIPPED</span>';
   if(p.status!=='done') return '<span class="verdict wait"><span class="spin" style="display:inline-block;vertical-align:-2px"></span> SCANNING</span>';
+  if(p.pypiStatus) return '<span class="verdict bad">⚠ '+esc(p.pypiStatus.toUpperCase())+'</span>';
   if(p.notFound) return '<span class="verdict unk">NOT FOUND</span>';
   if(p.osvError) return '<span class="verdict unk">SCAN ERROR</span>';
   if(p.vulns.length>0) return '<span class="verdict bad">⚠ VULNERABLE</span>';
@@ -1288,11 +1320,17 @@ function detail(p,idx){
   let h='<div class="detail">';
 
   // vulnerabilities
-  if(p.osvError){
+  if(p.pypiStatus){
+    h+=`<div class="dsec"><div class="notice flag">⚠ PyPI has marked this project as <b>${esc(p.pypiStatus)}</b>. `+
+       `Quarantined projects are frozen by PyPI administrators pending review, typically because the project was reported as malicious or otherwise problematic. `+
+       `It cannot be installed in this state and no package metadata is available. `+
+       `Treat this as a security signal: verify why the name is quarantined, and check whether the intended library publishes under a different package name.</div></div>`;
+  } else if(p.osvError){
     h+=`<div class="dsec"><div class="notice">Vulnerability lookup failed (OSV.dev unreachable). The browser may have blocked the request — retry the scan.</div></div>`;
   } else if(p.notFound){
-    h+=`<div class="dsec"><div class="notice">Package not found on ${p.ecosystem==='npm'?'the npm registry':'PyPI'}. It may be private, internal, renamed, or misspelled. No public vulnerability data available.</div></div>`;
-  } else if(p.vulns.length){
+    h+=`<div class="dsec"><div class="notice">Package not found on ${p.ecosystem==='npm'?'the npm registry':'PyPI'}. It may be private, internal, renamed, or misspelled. Registry metadata (version, license) is unavailable${p.vulns.length?', but OSV returned the advisory data below.':'.'}</div></div>`;
+  }
+  if(!p.osvError&&p.vulns.length){
     h+=`<div class="dsec"><h4>vulnerabilities · ${p.vulns.length}</h4>`;
     p.vulns.forEach(v=>{
       const sc=v.severity.label.toLowerCase();
@@ -1313,7 +1351,7 @@ function detail(p,idx){
       </div>`;
     });
     h+='</div>';
-  } else if(p.status==='done'){
+  } else if(p.status==='done'&&!p.pypiStatus&&!p.notFound&&!p.osvError){
     h+=`<div class="dsec"><h4>vulnerabilities</h4><div style="font-size:12.5px;color:var(--clean);font-family:'IBM Plex Mono',monospace">✓ No known CVEs for version ${esc(p.resolvedVersion||'?')} in the OSV database.</div></div>`;
   }
 
@@ -1412,8 +1450,8 @@ function compare(a,b){
     const ah=a.health==null?999:a.health, bh=b.health==null?999:b.health;
     return ah-bh;
   }
-  // risk: vulnerable first, by max severity, then count, then low health
-  const av=a.vulns.length>0, bv=b.vulns.length>0;
+  // risk: flagged (vulnerable or quarantined) first, by max severity, then count, then low health
+  const av=a.vulns.length>0||!!a.pypiStatus, bv=b.vulns.length>0||!!b.pypiStatus;
   if(av!==bv) return av?-1:1;
   if(av){
     if(b.maxRank!==a.maxRank) return b.maxRank-a.maxRank;
@@ -1426,10 +1464,10 @@ function passesFilter(p){
   const q=searchEl.value.trim().toLowerCase();
   if(q&&!p.name.toLowerCase().includes(q)) return false;
   if(activeFilter==='all') return true;
-  if(activeFilter==='vuln') return p.vulns.length>0;
-  if(activeFilter==='license') return p.status==='done'&&!p.unparseable&&p.lic&&licenseVerdict(p.lic).level!=='allowed';
-  if(activeFilter==='clean') return p.status==='done'&&p.vulns.length===0&&!p.notFound&&!p.osvError&&!p.unparseable;
-  if(activeFilter==='issue') return p.unparseable||p.notFound||p.osvError||p.metaError;
+  if(activeFilter==='vuln') return p.vulns.length>0||!!p.pypiStatus;
+  if(activeFilter==='license') return p.status==='done'&&!p.unparseable&&!p.pypiStatus&&!p.notFound&&p.lic&&licenseVerdict(p.lic).level!=='allowed';
+  if(activeFilter==='clean') return p.status==='done'&&p.vulns.length===0&&!p.pypiStatus&&!p.notFound&&!p.osvError&&!p.unparseable;
+  if(activeFilter==='issue') return p.unparseable||p.notFound||p.osvError||p.metaError||!!p.pypiStatus;
   return true;
 }
 
@@ -1442,7 +1480,7 @@ function renderList(){
   listEl.innerHTML=view.map((p)=>{
     const i=PKGS.indexOf(p);
     const open=expanded.has(p.normName||p.name);
-    const cls='pkg card'+(p.vulns.length>0?' vuln':'')+((p.unparseable||p.notFound||p.osvError)?' err':'')+(open?' open':'');
+    const cls='pkg card'+((p.vulns.length>0||p.pypiStatus)?' vuln':'')+((p.unparseable||p.notFound||p.osvError)?' err':'')+(open?' open':'');
     const verCls=p.versionAssumed?'ver assumed':'ver';
     const verTxt=p.resolvedVersion?'@'+p.resolvedVersion:(p.specifier||'unpinned');
     return `<div class="${cls}" data-i="${i}">
@@ -1560,6 +1598,7 @@ exportBtn.addEventListener('click',()=>{
         version:p.resolvedVersion||null,pinned:!!p.pinnedVersion,
         health:p.health,latest:p.latest||null,
         yanked:!!p.yanked,deprecated:p.deprecated||false,
+        registryStatus:p.pypiStatus||(p.notFound?'not found':'active'),
         license:lv?{detected:lv.short,status:lv.level,assessment:lv.title,approved:lv.level==='allowed'}:null,
         vulnerabilities:p.vulns.map(v=>({
           id:v.id,severity:v.severity.label,cvss:v.severity.score,
