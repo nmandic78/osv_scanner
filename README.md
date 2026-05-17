@@ -3,7 +3,7 @@
 A single-file web tool that audits the dependencies of a Python or npm/Node project
 for known vulnerabilities, license compliance, and supply-chain health. No install, no
 backend, no API keys. Open one HTML file in a browser, drop in a dependency file, and
-review the results in a dashboard.
+review the results in a dashboard. 
 
 <!-- Add a screenshot here, e.g. docs/screenshot.png -->
 ![Dependency Security Audit](screenshot.png)
